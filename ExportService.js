@@ -3,80 +3,115 @@
 
     angular.module('logDurationApp').service('ExportService', ExportService);
 
-    ExportService.$inject = ['$q', '$window', '$document'];
+    ExportService.$inject = ['$q', '$window', '$document', 'DurationService'];
 
-    function ExportService($q, $window, $document) {
+    /**
+     * Every builder returns an ARRAY OF STRING PARTS (not one giant string), so exports of
+     * hundreds of thousands of transactions never need a single huge string; download()
+     * hands the parts straight to a Blob.
+     */
+    function ExportService($q, $window, $document, DurationService) {
         var self = this;
+        var sec = DurationService.seconds;
 
-        self.toCsv = toCsv;
-        self.toJson = toJson;
-        self.rowToText = rowToText;
-        self.rowsToText = rowsToText;
+        self.transactionsCsv = transactionsCsv;
+        self.transactionsJson = transactionsJson;
+        self.logLinesText = logLinesText;
+        self.analysisCsv = analysisCsv;
+        self.recordText = recordText;
         self.download = download;
         self.copy = copy;
         self.timestampForFile = timestampForFile;
 
-        var CSV_HEADER = ['Match Text', 'Start Line', 'End Line', 'Start Datetime', 'End Datetime',
-                          'Duration (ms)', 'Duration (seconds)', 'Status', 'Message'];
+        var TX_HEADER = ['Transaction Hash', 'Source Account', 'Destination Account', 'Asset', 'Amount', 'Description',
+            'Signing Time', 'Batch Time', 'Callback Time', 'Signing to Batch (s)', 'Batch to Callback (s)', 'Signing to Callback (s)',
+            'Status', 'Flags', 'Missing Events', 'Signing Line', 'Batch Line', 'Callback Line'];
 
-        function csvCell(v) {
+        function cell(v) {
             if (v === null || v === undefined) { return ''; }
             var s = String(v);
             return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
         }
+        function csvLine(values) { return values.map(cell).join(',') + '\r\n'; }
+        function where(ev) { return ev ? ev.fileName + ':' + ev.lineNo : ''; }
 
-        function rowMessage(r) {
-            var msgs = [];
-            if (r.error) { msgs.push(r.error); }
-            return msgs.concat(r.warnings || []).join(' | ');
-        }
-
-        function toCsv(rows) {
-            var lines = [CSV_HEADER.join(',')];
-            rows.forEach(function (r) {
-                lines.push([r.key, r.startLine, r.endLine, r.startTs, r.endTs,
-                            r.durationMs, r.durationSec, r.status, rowMessage(r)].map(csvCell).join(','));
+        /** One transaction per row. */
+        function transactionsCsv(records) {
+            var parts = ['\uFEFF' + csvLine(TX_HEADER)];
+            records.forEach(function (r) {
+                parts.push(csvLine([r.hash, r.src, r.dst, r.asset, r.amount, r.desc, r.signingTime, r.batchTime, r.callbackTime,
+                    sec(r.signingToBatch), sec(r.batchToCallback), sec(r.signingToCallback),
+                    r.status, r.flags.join(' '), r.missing.join(' '), where(r.signing), where(r.batch), where(r.callback)]));
             });
-            return '\uFEFF' + lines.join('\r\n'); // BOM so Excel reads UTF-8
+            return parts;
         }
 
-        /** Full detail: configuration, summary, every row with its original log lines, unmatched entries. */
-        function toJson(result, config) {
-            return JSON.stringify({
-                generatedAt: new Date().toISOString(),
-                configuration: config,
-                summary: { totals: result.totals, statistics: result.stats },
-                messages: result.messages,
-                results: result.rows,
-                unmatched: result.unmatched
-            }, null, 2);
+        /** Full detail including the original log lines of every occurrence. */
+        function transactionsJson(result, records, files) {
+            var parts = ['{\n"generatedAt": ' + JSON.stringify(new Date().toISOString()) +
+                ',\n"files": ' + JSON.stringify(files) +
+                ',\n"summary": ' + JSON.stringify({ totals: result.totals, statusCounts: result.statusCounts, statistics: result.stats }) +
+                ',\n"transactions": [\n'];
+            records.forEach(function (r, i) {
+                parts.push((i ? ',\n' : '') + JSON.stringify({
+                    hash: r.hash, source: r.src, destination: r.dst, asset: r.asset, amount: r.amount, description: r.desc,
+                    status: r.status, flags: r.flags, missingEvents: r.missing, occurrences: r.counts,
+                    durationsMs: { signingToBatch: r.signingToBatch, batchToCallback: r.batchToCallback, signingToCallback: r.signingToCallback },
+                    events: {
+                        signing: eventJson(r.signing), batch: eventJson(r.batch), callback: eventJson(r.callback),
+                        allSignings: r.all.signings.map(eventJson), allBatches: r.all.batches.map(eventJson), allCallbacks: r.all.callbacks.map(eventJson)
+                    }
+                }));
+            });
+            parts.push('\n]\n}\n');
+            return parts;
         }
 
-        function rowToText(r) {
+        function eventJson(ev) {
+            return ev ? { file: ev.fileName, line: ev.lineNo, timestamp: ev.tsText, timestampError: ev.tsError, originalLine: ev.raw } : null;
+        }
+
+        /** Original matching log lines, grouped by transaction. */
+        function logLinesText(records) {
+            var parts = [];
+            records.forEach(function (r) {
+                parts.push('==== ' + r.hash + '  [' + r.status + (r.flags.length ? ' | ' + r.flags.join(' ') : '') + '] ====\n');
+                [['SIGNING', r.all.signings], ['BATCH', r.all.batches], ['CALLBACK', r.all.callbacks]].forEach(function (g) {
+                    g[1].forEach(function (ev) { parts.push(g[0] + '  ' + where(ev) + '\n' + ev.raw + '\n'); });
+                });
+                if (r.missing.length) { parts.push('MISSING  ' + r.missing.join(', ') + '\n'); }
+                parts.push('\n');
+            });
+            return parts;
+        }
+
+        /** Batch and callback analysis, one event per row, with the hashes that need attention. */
+        function analysisCsv(batches, callbacks) {
+            var parts = ['\uFEFF' + csvLine(['Event', 'File', 'Line', 'Timestamp', 'Declared Size', 'Hashes Extracted', 'Unique Hashes',
+                'Matched With Signing', 'Found In Callback', 'Missing From Callback', 'Matched To Batch', 'Not In Batch', 'Hashes To Review'])];
+            batches.forEach(function (b) {
+                parts.push(csvLine(['Batch', b.fileName, b.lineNo, b.tsText, b.declaredSize, b.extracted, b.unique,
+                    b.matchedSigning, b.inCallback, b.missingFromCallback.length, '', '', b.missingFromCallback.join(' ')]));
+            });
+            callbacks.forEach(function (c) {
+                parts.push(csvLine(['Callback', c.fileName, c.lineNo, c.tsText, c.declaredSize, c.extracted, c.unique,
+                    '', '', '', c.matchedToBatch, c.notInBatch.length, c.notInBatch.join(' ')]));
+            });
+            return parts;
+        }
+
+        function recordText(r) {
             return [
-                'Match Text: ' + r.key,
-                'Start: line ' + r.startLine + ' | ' + r.startTs,
-                'End:   line ' + r.endLine + ' | ' + r.endTs,
-                'Duration (ms): ' + r.durationMs,
-                'Duration (s): ' + r.durationSec,
-                'Status: ' + r.status + (r.error ? ' - ' + r.error : '')
+                'Transaction: ' + r.hash, 'Status: ' + r.status,
+                'Source: ' + r.src, 'Destination: ' + r.dst, 'Asset: ' + r.asset, 'Amount: ' + r.amount,
+                'Signing: ' + r.signingTime, 'Batch: ' + r.batchTime, 'Callback: ' + r.callbackTime,
+                'Signing to Batch (s): ' + sec(r.signingToBatch), 'Batch to Callback (s): ' + sec(r.batchToCallback),
+                'Signing to Callback (s): ' + sec(r.signingToCallback)
             ].join('\n');
         }
 
-        /** Tab-separated, pastes cleanly into Excel / Sheets. */
-        function rowsToText(rows) {
-            var out = [CSV_HEADER.join('\t')];
-            rows.forEach(function (r) {
-                out.push([r.key, r.startLine, r.endLine, r.startTs, r.endTs,
-                          r.durationMs, r.durationSec, r.status, rowMessage(r)]
-                    .map(function (v) { return v === null || v === undefined ? '' : String(v).replace(/[\t\r\n]+/g, ' '); })
-                    .join('\t'));
-            });
-            return out.join('\n');
-        }
-
-        function download(filename, content, mime) {
-            var blob = new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+        function download(filename, parts, mime) {
+            var blob = new Blob(angular.isArray(parts) ? parts : [parts], { type: mime || 'text/plain;charset=utf-8' });
             var url = $window.URL.createObjectURL(blob);
             var a = $document[0].createElement('a');
             a.href = url;

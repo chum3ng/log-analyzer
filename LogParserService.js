@@ -3,92 +3,83 @@
 
     angular.module('logDurationApp').service('LogParserService', LogParserService);
 
-    LogParserService.$inject = ['$q', '$rootScope', 'AppConfig'];
+    LogParserService.$inject = ['$q', 'FileUploadService', 'TransactionExtractorService', 'TransactionCorrelationService'];
 
-    function LogParserService($q, $rootScope, AppConfig) {
+    /**
+     * Streams every selected file, detects the three event types line by line and feeds
+     * them into one correlation run. Lines that are not one of the three events are
+     * discarded immediately, so memory only holds the events themselves.
+     *
+     * Files are processed one after another; all of them contribute to the same run,
+     * so a transaction whose events are spread over several files still correlates.
+     */
+    function LogParserService($q, FileUploadService, Extractor, Correlation) {
         var self = this;
+        var token = 0;
 
-        self.splitLines = splitLines;
-        self.countLines = countLines;
-        self.hasValidExtension = hasValidExtension;
-        self.readFile = readFile;
-        self.formatBytes = formatBytes;
+        self.parseFiles = parseFiles;
+        self.cancel = function () { token++; };
 
-        /** Splits on \r\n, \n or \r. Line N of the result is original line number N+1. */
-        function splitLines(text) {
-            if (!text) { return []; }
-            var lines = String(text).split(/\r\n|\r|\n/);
-            if (lines.length > 1 && lines[lines.length - 1] === '') {
-                lines.pop(); // trailing newline does not create an extra line
-            }
-            return lines;
-        }
+        /**
+         * parseFiles(entries, onProgress) -> promise of { run, lines, files }
+         * onProgress({ fileName, percent })  percent is across all files, by bytes.
+         * Rejects with { cancelled: true } when cancel() is called.
+         */
+        function parseFiles(entries, onProgress) {
+            var mine = ++token;
+            var run = Correlation.createRun();
+            var totalBytes = entries.reduce(function (sum, e) { return sum + e.size; }, 0);
+            var doneBytes = 0, totalLines = 0;
 
-        /** Counts lines without allocating an array (cheap enough to run on every edit). */
-        function countLines(text) {
-            if (!text) { return 0; }
-            var n = 1, len = text.length;
-            for (var i = 0; i < len; i++) {
-                var c = text.charCodeAt(i);
-                if (c === 13) {
-                    if (text.charCodeAt(i + 1) === 10) { i++; }
-                    n++;
-                } else if (c === 10) {
-                    n++;
+            entries.forEach(function (e) { e.status = 'queued'; e.progress = 0; e.lines = 0; e.events = 0; e.error = ''; });
+
+            var chain = entries.reduce(function (p, entry) {
+                return p.then(function () { return parseEntry(entry); });
+            }, $q.when());
+
+            return chain.then(function () { return { run: run, lines: totalLines, files: entries.length }; });
+
+            function stopped() { return mine !== token; }
+
+            function parseEntry(entry) {
+                entry.status = 'reading';
+                var ctx = { fileId: entry.id, fileName: entry.name, lineNo: 0 };
+
+                function onLine(line, lineNo) {
+                    var detected = Extractor.detectType(line);
+                    if (!detected) { return; }
+                    try {
+                        ctx.lineNo = lineNo;
+                        if (run.addEvent(Extractor.extract(line, detected, ctx))) { entry.events++; }
+                    } catch (err) {
+                        run.noteProblem(entry.name + ' line ' + lineNo + ': ' + err.message);
+                    }
                 }
-            }
-            var last = text.charCodeAt(len - 1);
-            if (n > 1 && (last === 10 || last === 13)) { n--; }
-            return n;
-        }
 
-        function hasValidExtension(fileName) {
-            var name = String(fileName || '').toLowerCase();
-            return AppConfig.ACCEPTED_EXTENSIONS.some(function (ext) {
-                return name.length > ext.length && name.slice(-ext.length) === ext;
-            });
-        }
-
-        /** Reads a File with FileReader. Resolves { name, size, text }. */
-        function readFile(file) {
-            var deferred = $q.defer();
-
-            if (!file) {
-                deferred.reject('No file selected.');
-                return deferred.promise;
-            }
-            if (!hasValidExtension(file.name)) {
-                deferred.reject('Unsupported file type "' + file.name + '". Allowed: ' +
-                    AppConfig.ACCEPTED_EXTENSIONS.join(', ') + '.');
-                return deferred.promise;
-            }
-
-            var reader = new FileReader();
-            reader.onload = function () {
-                $rootScope.$evalAsync(function () {
-                    deferred.resolve({ name: file.name, size: file.size, text: String(reader.result || '') });
-                });
-            };
-            reader.onerror = function () {
-                $rootScope.$evalAsync(function () {
-                    deferred.reject('Could not read "' + file.name + '".');
-                });
-            };
-            reader.onprogress = function (e) {
-                if (e.lengthComputable) {
-                    $rootScope.$evalAsync(function () { deferred.notify(e.loaded / e.total); });
+                function onSlice(fraction, lines) {
+                    entry.progress = Math.round(fraction * 100);
+                    entry.lines = lines;
+                    if (onProgress) {
+                        onProgress({
+                            fileName: entry.name,
+                            percent: totalBytes ? Math.min(100, Math.round((doneBytes + fraction * entry.size) / totalBytes * 100)) : 100
+                        });
+                    }
                 }
-            };
-            reader.readAsText(file);
-            return deferred.promise;
-        }
 
-        function formatBytes(bytes) {
-            if (!bytes) { return '0 B'; }
-            var units = ['B', 'KB', 'MB', 'GB'];
-            var i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-            var v = bytes / Math.pow(1024, i);
-            return (i === 0 ? v : v.toFixed(v >= 100 ? 0 : 1)) + ' ' + units[i];
+                return FileUploadService.streamLines(entry, onLine, onSlice, stopped).then(function (lines) {
+                    entry.lines = lines;
+                    entry.progress = 100;
+                    entry.status = 'done';
+                    totalLines += lines;
+                    doneBytes += entry.size;
+                }, function (err) {
+                    if (err && err.cancelled) { return $q.reject(err); }
+                    entry.status = 'error';
+                    entry.error = (err && err.message) || 'Could not read this file.';
+                    doneBytes += entry.size;   // keep going: other files are still analysed
+                });
+            }
         }
     }
 })();

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Dynamic Log Duration Analyzer</title>
+    <title>Automatic Transaction Log Analyzer</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/angular.js/1.8.3/angular.min.js"></script>
 </head>
@@ -11,334 +11,384 @@
 
 <header class="app-header">
     <div class="wrap">
-        <h1>Dynamic Log Duration Analyzer</h1>
-        <p>Find a start line and an end line that share the same transaction ID, then measure the time between them. Your log never leaves this browser tab.</p>
+        <h1>Automatic Transaction Log Analyzer</h1>
+        <p>Upload your log files. Each transaction is followed from signing, to batch, to callback by its hash, and the time between the steps is measured. Files are read in this browser tab and never uploaded.</p>
     </div>
 </header>
 
 <main class="wrap">
 
-    <!-- ============================================================ A. LOG INPUT -->
-    <section class="card" aria-labelledby="h-input">
-        <div class="card-head">
-            <h2 id="h-input">Log input</h2>
-            <div class="actions">
-                <label class="btn" for="logFile">Upload log file</label>
-                <input id="logFile" class="visually-hidden" type="file" accept=".log,.txt,.out" log-file-input="vm.onFileChosen(file)">
-                <button type="button" class="btn" ng-click="vm.loadSample()">Load sample</button>
-                <button type="button" class="btn btn-quiet" ng-click="vm.clearLog()">Clear</button>
-            </div>
+    <!-- ================================================================== UPLOAD -->
+    <section class="card" aria-labelledby="h-upload">
+        <div class="card-head"><h2 id="h-upload">Log files</h2></div>
+
+        <div class="dropzone" file-drop-zone="vm.addFiles(files)">
+            <p class="dz-title">Drop log files here</p>
+            <p class="help">.log, .txt and .out files, one or many. Large files are fine.</p>
+            <label class="btn" for="logFiles">Browse files</label>
+            <input id="logFiles" class="visually-hidden" type="file" multiple accept=".log,.txt,.out" log-file-input="vm.addFiles(files)">
         </div>
 
-        <p class="meta">
-            <span><strong>{{vm.lineCount | number}}</strong> lines</span>
-            <span ng-if="vm.fileName">File: <strong>{{vm.fileName}}</strong> ({{vm.fileSize}})</span>
-            <span ng-if="vm.loadingFile">Reading file...</span>
-        </p>
-        <p class="msg msg-error" ng-if="vm.fileError" role="alert">{{vm.fileError}}</p>
-        <p class="msg msg-error" ng-if="vm.errorFor('log')" role="alert">{{vm.errorFor('log')}}</p>
-
-        <label class="visually-hidden" for="logText">Log content</label>
-        <textarea id="logText" class="log-area" spellcheck="false" wrap="off"
-                  ng-model="vm.logText" ng-change="vm.onLogTextChange()"
-                  ng-model-options="{ debounce: 250 }"
-                  placeholder="Paste log lines here, or upload a .log, .txt or .out file. You can edit the text before analyzing."></textarea>
-    </section>
-
-    <!-- ================================================== B. MATCHING CONFIGURATION -->
-    <section class="card" aria-labelledby="h-match">
-        <div class="card-head"><h2 id="h-match">Matching</h2></div>
-
-        <div class="field" ng-class="{'has-error': vm.errorFor('startText')}">
-            <label for="startText">Start Text</label>
-            <input id="startText" type="text" ng-model="vm.config.startText" spellcheck="false" autocomplete="off">
-            <p class="help">Identifies the starting log line.</p>
-            <p class="msg msg-error" ng-if="vm.errorFor('startText')">{{vm.errorFor('startText')}}</p>
-        </div>
-
-        <div class="field" ng-class="{'has-error': vm.errorFor('endText')}">
-            <label for="endText">End Text</label>
-            <input id="endText" type="text" ng-model="vm.config.endText" spellcheck="false" autocomplete="off">
-            <p class="help">Identifies the ending log line.</p>
-            <p class="msg msg-error" ng-if="vm.errorFor('endText')">{{vm.errorFor('endText')}}</p>
-        </div>
-
-        <div class="field" ng-class="{'has-error': vm.errorFor('matchText')}">
-            <label for="matchText">Match Text</label>
-            <input id="matchText" type="text" class="mono" ng-model="vm.config.matchText" spellcheck="false" autocomplete="off">
-            <p class="help">The transaction ID that must appear in both lines. It can sit anywhere in the line, including inside an array or JSON.</p>
-            <p class="msg msg-error" ng-if="vm.errorFor('matchText')">{{vm.errorFor('matchText')}}</p>
-        </div>
-
-        <div class="options">
-            <fieldset>
-                <legend>Match type</legend>
-                <label class="choice" ng-repeat="m in vm.matchModes">
-                    <input type="radio" name="matchMode" ng-model="vm.config.matchMode" ng-value="m.id"> {{m.label}}
-                </label>
-            </fieldset>
-            <fieldset>
-                <legend>Case</legend>
-                <label class="choice"><input type="radio" name="caseMode" ng-model="vm.config.caseSensitive" ng-value="true"> Case-sensitive</label>
-                <label class="choice"><input type="radio" name="caseMode" ng-model="vm.config.caseSensitive" ng-value="false"> Case-insensitive</label>
-            </fieldset>
-        </div>
-        <p class="help" ng-if="vm.config.matchMode === 'regex'">In regular-expression mode all three fields are patterns. For Match Text, the first string it matches on each line is the ID used for pairing.</p>
-        <p class="help" ng-if="vm.config.matchMode === 'exact'">Whole-token matching: the text must not be glued to other letters, digits or underscores.</p>
-    </section>
-
-    <!-- ============================================================ DATETIME + PAIRING -->
-    <section class="card" aria-labelledby="h-time">
-        <div class="card-head"><h2 id="h-time">Timestamps and pairing</h2></div>
-
-        <div class="options">
-            <fieldset>
-                <legend>Timestamp detection</legend>
-                <label class="choice"><input type="radio" name="dtMode" ng-model="vm.config.dt.mode" value="auto"> Automatic</label>
-                <label class="choice"><input type="radio" name="dtMode" ng-model="vm.config.dt.mode" value="regex"> Custom regex</label>
-                <label class="choice"><input type="radio" name="dtMode" ng-model="vm.config.dt.mode" value="format"> Manual format</label>
-            </fieldset>
-
-            <fieldset>
-                <legend>Pairing strategy</legend>
-                <label class="choice" ng-repeat="p in vm.pairingOptions" title="{{p.hint}}">
-                    <input type="radio" name="pairing" ng-model="vm.config.pairing" ng-value="p.id"> {{p.label}}
-                </label>
-                <label class="choice sub" ng-if="vm.config.pairing === 'sequential'">
-                    <input type="checkbox" ng-model="vm.config.allowEndReuse"> Allow one end entry to be reused
-                </label>
-            </fieldset>
-        </div>
-
-        <p class="help" ng-if="vm.config.dt.mode === 'auto'">
-            Detected automatically, anywhere in the line. Examples:
-            <code ng-repeat="f in vm.supportedFormats">{{f}}</code>
-        </p>
-
-        <div class="field" ng-if="vm.config.dt.mode === 'regex'" ng-class="{'has-error': vm.errorFor('datetime')}">
-            <label for="dtRegex">Datetime regular expression</label>
-            <input id="dtRegex" type="text" class="mono" ng-model="vm.config.dt.regex" spellcheck="false" autocomplete="off"
-                   placeholder="e.g. ^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)\|">
-            <div class="inline">
-                <label for="dtGroup">Capture group</label>
-                <input id="dtGroup" type="number" min="0" class="narrow" ng-model="vm.config.dt.group">
-                <span class="help">0 = whole match.</span>
-            </div>
-            <label for="dtFormatRx">Format for the captured text (optional)</label>
-            <input id="dtFormatRx" type="text" class="mono" ng-model="vm.config.dt.format" spellcheck="false" autocomplete="off"
-                   placeholder="Leave empty to detect the format automatically">
-        </div>
-
-        <div class="field" ng-if="vm.config.dt.mode === 'format'" ng-class="{'has-error': vm.errorFor('datetime')}">
-            <label for="dtFormat">Datetime format</label>
-            <input id="dtFormat" type="text" class="mono" ng-model="vm.config.dt.format" spellcheck="false" autocomplete="off"
-                   placeholder="yyyy-MM-dd HH:mm:ss.SSS">
-            <p class="help">Letters: yyyy yy MMM MM dd HH hh mm ss S (fraction) a (AM/PM) XXX or Z (timezone). Put literal text in single quotes.</p>
-        </div>
-        <p class="msg msg-error" ng-if="vm.errorFor('datetime')" role="alert">{{vm.errorFor('datetime')}}</p>
-
-        <div class="options">
-            <div class="field compact">
-                <label for="defaultTz">Default timezone</label>
-                <input id="defaultTz" type="text" list="tzList" ng-model="vm.config.dt.defaultTz" autocomplete="off">
-                <datalist id="tzList"><option ng-repeat="z in vm.timezones" value="{{z}}"></option></datalist>
-                <p class="help">Used only when a timestamp has no timezone. UTC, local, or an offset like +07:00.</p>
-            </div>
-            <div class="field compact">
-                <label for="occurrence">If a line has several timestamps</label>
-                <select id="occurrence" ng-model="vm.config.dt.occurrence">
-                    <option value="first">Use the first</option>
-                    <option value="last">Use the last</option>
-                </select>
-                <p class="help">A warning is always shown when this happens.</p>
-            </div>
-            <div class="field compact">
-                <label for="dateOrder">Dates like 02/11/2026</label>
-                <select id="dateOrder" ng-model="vm.config.dt.dateOrder">
-                    <option value="DMY">Day / month / year</option>
-                    <option value="MDY">Month / day / year</option>
-                </select>
-            </div>
-        </div>
-
-        <div class="run-bar">
-            <button type="button" class="btn btn-primary" ng-click="vm.analyze()" ng-disabled="vm.running">
-                {{vm.running ? 'Analyzing...' : 'Analyze log'}}
-            </button>
-            <button type="button" class="btn" ng-if="vm.running" ng-click="vm.cancel()">Cancel</button>
-            <div class="progress" ng-if="vm.running" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{vm.progress.percent}}">
-                <div class="progress-fill" ng-style="{width: vm.progress.percent + '%'}"></div>
-            </div>
-            <span class="meta" ng-if="vm.running">{{vm.progress.processed | number}} of {{vm.progress.total | number}} lines</span>
-        </div>
-    </section>
-
-    <!-- ===================================================================== RESULTS -->
-    <section class="card results" ng-if="vm.result" aria-labelledby="h-results">
-        <div class="card-head">
-            <h2 id="h-results">Results</h2>
-            <span class="meta">{{vm.result.totals.lines | number}} lines scanned in {{vm.result.elapsedMs | number}} ms</span>
-        </div>
-
-        <ul class="notes" ng-if="vm.result.messages.length">
-            <li ng-repeat="m in vm.result.messages" ng-class="'note-' + m.level">{{m.text}}</li>
+        <ul class="notes" ng-if="vm.uploadMessages.length" role="alert">
+            <li class="note-warning" ng-repeat="m in vm.uploadMessages track by $index">{{m}}</li>
         </ul>
 
-        <div class="cards">
-            <div class="stat" ng-repeat="c in vm.summaryCards" ng-class="c.tone">
-                <div class="stat-label">{{c.label}}</div>
-                <div class="stat-main">{{c.main}}</div>
-                <div class="stat-sub" ng-if="c.sub">{{c.sub}}</div>
-            </div>
-        </div>
-
-        <div class="dist" ng-if="vm.result.distribution.length > 1">
-            <h3>Duration distribution</h3>
-            <div class="dist-bars">
-                <div class="dist-col" ng-repeat="b in vm.result.distribution"
-                     title="{{b.count}} transaction(s): {{b.from | duration:'s'}} to {{b.to | duration:'s'}}">
-                    <span class="dist-count">{{b.count}}</span>
-                    <span class="dist-bar" ng-style="{height: vm.distHeight(b) + '%'}"></span>
-                </div>
-            </div>
-            <div class="dist-axis"><span>{{vm.result.stats.min | duration:'s'}}</span><span>{{vm.result.stats.max | duration:'s'}}</span></div>
-        </div>
-
-        <div class="toolbar" ng-if="vm.result.rows.length">
-            <input type="search" class="search" placeholder="Filter by ID, line, time or message" aria-label="Filter results"
-                   ng-model="vm.filter.text" ng-change="vm.refreshView()" ng-model-options="{ debounce: 200 }">
-            <select ng-model="vm.filter.status" ng-change="vm.refreshView()" aria-label="Filter by status">
-                <option value="">All statuses</option>
-                <option value="success">Success</option>
-                <option value="error">Error</option>
-            </select>
-            <button type="button" class="btn" ng-click="vm.sortSlowest()">Slowest first</button>
-            <span class="spacer"></span>
-            <button type="button" class="btn" ng-click="vm.copyAll()">Copy all</button>
-            <button type="button" class="btn" ng-click="vm.exportCsv()">Export CSV</button>
-            <button type="button" class="btn" ng-click="vm.exportJson()">Export JSON</button>
-        </div>
-
-        <div class="table-wrap" ng-if="vm.result.rows.length">
+        <div class="table-wrap files" ng-if="vm.files.length">
             <table class="results-table">
-                <thead>
-                <tr>
-                    <th class="col-tools"><span class="visually-hidden">Details</span></th>
-                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('no')">No.</button></th>
-                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('key')">Match Text</button></th>
-                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('startLine')">Start Line</button></th>
-                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('endLine')">End Line</button></th>
-                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('startIso')">Start Datetime</button></th>
-                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('endIso')">End Datetime</button></th>
-                    <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('durationMs')">Duration (ms)</button></th>
-                    <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('durationSec')">Duration (seconds)</button></th>
-                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('status')">Status</button></th>
-                    <th class="col-tools"><span class="visually-hidden">Copy</span></th>
-                </tr>
-                </thead>
+                <thead><tr><th>File</th><th class="num">Size</th><th>Status</th><th class="num">Lines</th><th class="num">Events found</th><th><span class="visually-hidden">Remove</span></th></tr></thead>
                 <tbody>
-                <tr ng-repeat-start="row in vm.pageRows track by row.no" ng-class="{open: vm.expanded[row.no], bad: row.status === 'error'}">
-                    <td class="col-tools">
-                        <button type="button" class="link-btn" ng-click="vm.toggleRow(row)" aria-expanded="{{!!vm.expanded[row.no]}}">
-                            {{vm.expanded[row.no] ? 'Hide' : 'Details'}}
-                        </button>
-                    </td>
-                    <td>{{row.no}}</td>
-                    <td class="mono clip" title="{{row.key}}">{{row.key}}</td>
-                    <td>{{row.startLine || '-'}}</td>
-                    <td>{{row.endLine || '-'}}</td>
-                    <td class="mono nowrap">{{row.startTs || '-'}}</td>
-                    <td class="mono nowrap">{{row.endTs || '-'}}</td>
-                    <td class="num mono">
-                        {{row.durationMs === null ? '-' : row.durationMs}}
-                        <span class="bar" ng-if="row.status === 'success'"><span class="bar-fill" ng-style="{width: vm.barWidth(row) + '%'}"></span></span>
-                    </td>
-                    <td class="num mono">{{row.durationSec === null ? '-' : row.durationSec}}</td>
+                <tr ng-repeat="f in vm.files track by f.id">
+                    <td class="mono clip wide" title="{{f.name}}">{{f.name}}</td>
+                    <td class="num">{{f.sizeText}}</td>
                     <td>
-                        <span class="pill" ng-class="row.status">{{row.status === 'success' ? 'Success' : 'Error'}}</span>
-                        <span class="pill warn" ng-if="row.warnings.length" title="{{row.warnings.length}} warning(s), open Details">{{row.warnings.length}}</span>
+                        <span class="pill" ng-class="'fs-' + f.status">
+                            {{ {queued: 'Ready', reading: 'Reading ' + f.progress + '%', done: 'Done', error: 'Error', empty: 'Empty'}[f.status] }}
+                        </span>
+                        <span class="msg msg-error" ng-if="f.error">{{f.error}}</span>
+                        <span class="bar" ng-if="f.status === 'reading'"><span class="bar-fill" ng-style="{width: f.progress + '%'}"></span></span>
                     </td>
-                    <td class="col-tools"><button type="button" class="link-btn" ng-click="vm.copyRow(row)">Copy</button></td>
-                </tr>
-                <tr ng-repeat-end ng-if="vm.expanded[row.no]" class="detail-row">
-                    <td colspan="11">
-                        <div class="detail">
-                            <div class="detail-col">
-                                <h4>Start line {{row.startLine}}</h4>
-                                <pre>{{row.startRaw || 'No start line'}}</pre>
-                                <h4>End line {{row.endLine}}</h4>
-                                <pre>{{row.endRaw || 'No end line'}}</pre>
-                            </div>
-                            <div class="detail-col">
-                                <h4>Extracted timestamps</h4>
-                                <dl class="kv" ng-if="row.startDetail">
-                                    <dt>Start text</dt><dd class="mono">{{row.startDetail.text}}</dd>
-                                    <dt>Start in UTC</dt><dd class="mono">{{row.startIso}}</dd>
-                                    <dt>Start format</dt><dd>{{row.startDetail.format}}, position {{row.startDetail.position}}, timezone {{row.startDetail.timezone}}</dd>
-                                </dl>
-                                <dl class="kv" ng-if="row.endDetail">
-                                    <dt>End text</dt><dd class="mono">{{row.endDetail.text}}</dd>
-                                    <dt>End in UTC</dt><dd class="mono">{{row.endIso}}</dd>
-                                    <dt>End format</dt><dd>{{row.endDetail.format}}, position {{row.endDetail.position}}, timezone {{row.endDetail.timezone}}</dd>
-                                </dl>
-                                <h4 ng-if="row.durationMs !== null">Duration</h4>
-                                <dl class="kv" ng-if="row.durationMs !== null">
-                                    <dt>Milliseconds</dt><dd class="mono">{{row.durationMs}}</dd>
-                                    <dt>Seconds</dt><dd class="mono">{{row.durationSec}}</dd>
-                                    <dt>Minutes, seconds</dt><dd>{{row.durationMs | duration:'ms-s'}}</dd>
-                                    <dt>Hours, minutes, seconds</dt><dd>{{row.durationMs | duration:'hms'}}</dd>
-                                    <dt>Days, hours, minutes, seconds</dt><dd>{{row.durationMs | duration:'dhms'}}</dd>
-                                    <dt>Readable</dt><dd>{{row.durationMs | duration}}</dd>
-                                </dl>
-                                <p class="msg msg-error" ng-if="row.error">{{row.error}}</p>
-                                <ul class="notes" ng-if="row.warnings.length">
-                                    <li class="note-warning" ng-repeat="w in row.warnings track by $index">{{w}}</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </td>
+                    <td class="num">{{f.lines | number}}</td>
+                    <td class="num">{{f.events | number}}</td>
+                    <td class="col-tools"><button type="button" class="link-btn" ng-click="vm.removeFile(f.id)" ng-disabled="vm.analyzing">Remove</button></td>
                 </tr>
                 </tbody>
             </table>
         </div>
 
-        <p class="empty" ng-if="!vm.result.rows.length">No pairs were produced. See the notes above and the unmatched entries below.</p>
-        <p class="empty" ng-if="vm.result.rows.length && !vm.filteredCount">No rows match the current filter.</p>
+        <div class="run-bar">
+            <button type="button" class="btn btn-primary" ng-click="vm.analyze()" ng-disabled="!vm.canAnalyze()">
+                {{vm.analyzing ? 'Analyzing...' : 'Analyze logs'}}
+            </button>
+            <button type="button" class="btn" ng-if="vm.analyzing" ng-click="vm.cancel()">Cancel</button>
+            <button type="button" class="btn btn-quiet" ng-click="vm.clearAll()" ng-disabled="!vm.files.length">Clear all</button>
+            <div class="progress" ng-if="vm.analyzing" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{vm.progress.percent}}">
+                <div class="progress-fill" ng-style="{width: vm.progress.percent + '%'}"></div>
+            </div>
+            <span class="meta" ng-if="vm.analyzing">{{vm.stage}}<span ng-if="vm.progress.fileName"> - {{vm.progress.fileName}}, {{vm.progress.percent}}%</span></span>
+        </div>
+        <ul class="notes" ng-if="vm.errors.length" role="alert">
+            <li class="note-error" ng-repeat="e in vm.errors track by $index">{{e}}</li>
+        </ul>
+    </section>
 
-        <div class="pager" ng-if="vm.pageCount > 1">
-            <button type="button" class="btn" ng-disabled="vm.page <= 1" ng-click="vm.goToPage(vm.page - 1)">Previous</button>
-            <span>Page {{vm.page}} of {{vm.pageCount}} ({{vm.filteredCount | number}} rows)</span>
-            <button type="button" class="btn" ng-disabled="vm.page >= vm.pageCount" ng-click="vm.goToPage(vm.page + 1)">Next</button>
+    <!-- ================================================================= RESULTS -->
+    <section ng-if="vm.result" aria-labelledby="h-results">
+        <h2 id="h-results" class="visually-hidden">Results</h2>
+
+        <div class="card">
+            <ul class="notes" ng-if="vm.result.messages.length">
+                <li ng-repeat="m in vm.result.messages" ng-class="'note-' + (m.level === 'info' ? 'info' : m.level)">{{m.text}}</li>
+            </ul>
+            <div class="cards">
+                <div class="stat" ng-repeat="c in vm.summaryCards" ng-class="c.tone">
+                    <div class="stat-label">{{c.label}}</div>
+                    <div class="stat-main">{{c.main | number}}</div>
+                </div>
+            </div>
+            <p class="empty" ng-if="!vm.result.totals.uniqueHashes">None of the three events were found in these files. Check that they are the right logs.</p>
         </div>
 
-        <details class="unmatched" ng-if="vm.result.unmatched.length">
-            <summary>Unmatched entries ({{vm.result.unmatched.length}})</summary>
-            <div class="table-wrap">
-                <table class="results-table">
-                    <thead><tr><th>Type</th><th>Line</th><th>Timestamp</th><th>Reason</th><th>Original line</th></tr></thead>
+        <div class="tabs" role="tablist">
+            <button type="button" role="tab" class="tab" ng-class="{active: vm.tab === 'transactions'}" ng-click="vm.tab = 'transactions'">Transactions</button>
+            <button type="button" role="tab" class="tab" ng-class="{active: vm.tab === 'batches'}" ng-click="vm.tab = 'batches'">Batches and callbacks</button>
+            <button type="button" role="tab" class="tab" ng-class="{active: vm.tab === 'stats'}" ng-click="vm.tab = 'stats'">Statistics</button>
+        </div>
+
+        <!-- ------------------------------------------------------ TRANSACTIONS -->
+        <div class="card" ng-if="vm.tab === 'transactions'">
+            <div class="chips" role="group" aria-label="Filter by status">
+                <button type="button" class="chip" ng-repeat="c in vm.statusChips" ng-class="{active: vm.filter.status === c.id, none: !c.count}"
+                        ng-click="vm.setStatus(c.id)">{{c.label}} <span class="chip-count">{{c.count | number}}</span></button>
+            </div>
+
+            <div class="toolbar">
+                <input type="search" class="search" placeholder="Search hash, account, asset, amount, description" aria-label="Search transactions"
+                       ng-model="vm.filter.text" ng-change="vm.refreshView()" ng-model-options="{ debounce: 250 }">
+                <select ng-model="vm.filter.flag" ng-change="vm.refreshView()" aria-label="Filter by flag" ng-if="vm.flagOptions.length">
+                    <option value="">Any flag</option>
+                    <option ng-repeat="f in vm.flagOptions" value="{{f.id}}">{{f.label}}</option>
+                </select>
+                <button type="button" class="btn" ng-click="vm.sortSlowest()">Slowest first</button>
+                <span class="spacer"></span>
+                <button type="button" class="btn" ng-click="vm.exportCsv()">Export CSV</button>
+                <button type="button" class="btn" ng-click="vm.exportJson()">Export JSON</button>
+                <button type="button" class="btn" ng-click="vm.exportUnmatched()">Export unmatched</button>
+                <button type="button" class="btn" ng-click="vm.exportLogLines()">Export log lines</button>
+            </div>
+
+            <div class="table-wrap" ng-if="vm.filteredCount">
+                <table class="results-table tx-table">
+                    <thead>
+                    <tr>
+                        <th><button type="button" class="th-btn" ng-click="vm.sortBy('hash')">Transaction Hash</button></th>
+                        <th><button type="button" class="th-btn" ng-click="vm.sortBy('src')">Source Account</button></th>
+                        <th><button type="button" class="th-btn" ng-click="vm.sortBy('dst')">Destination Account</button></th>
+                        <th><button type="button" class="th-btn" ng-click="vm.sortBy('asset')">Asset</button></th>
+                        <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('amountNum')">Amount</button></th>
+                        <th><button type="button" class="th-btn" ng-click="vm.sortBy('signingTs')">Signing Time</button></th>
+                        <th><button type="button" class="th-btn" ng-click="vm.sortBy('batchTs')">Batch Time</button></th>
+                        <th><button type="button" class="th-btn" ng-click="vm.sortBy('callbackTs')">Callback Time</button></th>
+                        <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('signingToBatch')">Signing → Batch</button></th>
+                        <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('batchToCallback')">Batch → Callback</button></th>
+                        <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('signingToCallback')">Signing → Callback</button></th>
+                        <th><button type="button" class="th-btn" ng-click="vm.sortBy('status')">Status</button></th>
+                        <th>Details</th>
+                    </tr>
+                    </thead>
                     <tbody>
-                    <tr ng-repeat="u in vm.result.unmatched | limitTo: 500">
-                        <td>{{u.type === 'start' ? 'Start' : 'End'}}</td>
-                        <td>{{u.lineNo}}</td>
-                        <td class="mono nowrap">{{u.timestamp}}</td>
-                        <td>{{u.reason}}</td>
-                        <td class="mono clip wide" title="{{u.raw}}">{{vm.preview(u.raw)}}</td>
+                    <tr ng-repeat="r in vm.pageRows track by r.key" ng-class="{bad: r.flags.indexOf('NEGATIVE_DURATION') !== -1}">
+                        <td class="mono clip"><button type="button" class="link-btn mono" title="{{r.hash}}" ng-click="vm.openDetail(r)">{{r.hash}}</button></td>
+                        <td class="mono clip" title="{{r.src}}">{{r.src || '-'}}</td>
+                        <td class="mono clip" title="{{r.dst}}">{{r.dst || '-'}}</td>
+                        <td>{{r.asset || '-'}}</td>
+                        <td class="num mono">{{r.amount || '-'}}</td>
+                        <td class="mono nowrap">{{r.signingTime || '-'}}</td>
+                        <td class="mono nowrap">{{r.batchTime || '-'}}</td>
+                        <td class="mono nowrap">{{r.callbackTime || '-'}}</td>
+                        <td class="num mono" ng-class="{neg: r.signingToBatch < 0}">{{r.signingToBatch | secs}}</td>
+                        <td class="num mono" ng-class="{neg: r.batchToCallback < 0}">{{r.batchToCallback | secs}}</td>
+                        <td class="num mono" ng-class="{neg: r.signingToCallback < 0}">{{r.signingToCallback | secs}}</td>
+                        <td>
+                            <span class="pill" ng-class="vm.statusClass(r.status)">{{r.status}}</span>
+                            <span class="pill warn" ng-if="r.flags.length" title="{{r.flags.join(', ')}}">{{r.flags.length}}</span>
+                        </td>
+                        <td class="col-tools"><button type="button" class="link-btn" ng-click="vm.openDetail(r)">Details</button></td>
                     </tr>
                     </tbody>
                 </table>
             </div>
-            <p class="help" ng-if="vm.result.unmatched.length > 500">Showing the first 500. The JSON export contains all of them.</p>
-        </details>
+            <p class="empty" ng-if="!vm.filteredCount">No transactions match the current filter.</p>
+
+            <div class="pager" ng-if="vm.pageCount > 1">
+                <button type="button" class="btn" ng-disabled="vm.page <= 1" ng-click="vm.goToPage(vm.page - 1)">Previous</button>
+                <span>Page {{vm.page}} of {{vm.pageCount}} ({{vm.filteredCount | number}} transactions)</span>
+                <button type="button" class="btn" ng-disabled="vm.page >= vm.pageCount" ng-click="vm.goToPage(vm.page + 1)">Next</button>
+            </div>
+        </div>
+
+        <!-- ------------------------------------------------ BATCHES / CALLBACKS -->
+        <div ng-if="vm.tab === 'batches'">
+            <div class="card">
+                <div class="card-head">
+                    <h3>Batch events ({{vm.batchView.total | number}})</h3>
+                    <div class="actions">
+                        <label class="choice"><input type="checkbox" ng-model="vm.batchView.onlyIssues" ng-change="vm.batchView.page = 1; vm.refreshAnalysis()"> Only batches needing review</label>
+                        <button type="button" class="btn" ng-click="vm.exportAnalysis()">Export analysis</button>
+                    </div>
+                </div>
+                <p class="help">Shows whether every transaction in a batch was signed and later came back in a callback.</p>
+                <div class="table-wrap" ng-if="vm.batchView.rows.length">
+                    <table class="results-table">
+                        <thead><tr><th></th><th>Batch time</th><th>Source</th><th class="num">Declared size</th><th class="num">Hashes extracted</th><th class="num">With signing event</th><th class="num">Found in callback</th><th class="num">Missing from callback</th></tr></thead>
+                        <tbody>
+                        <tr ng-repeat-start="b in vm.batchView.rows track by b.eventId" ng-class="{open: vm.openEvents[b.eventId], bad: b.missingFromCallback.length}">
+                            <td class="col-tools"><button type="button" class="link-btn" ng-click="vm.toggleEvent(b.eventId)">{{vm.openEvents[b.eventId] ? 'Hide' : 'Details'}}</button></td>
+                            <td class="mono nowrap">{{b.tsText || 'n/a'}}</td>
+                            <td class="mono clip" title="{{b.fileName}}:{{b.lineNo}}">{{b.fileName}}:{{b.lineNo}}</td>
+                            <td class="num">{{b.declaredSize === null ? '-' : b.declaredSize}}</td>
+                            <td class="num">{{b.extracted}}</td>
+                            <td class="num">{{b.matchedSigning}}</td>
+                            <td class="num">{{b.inCallback}}</td>
+                            <td class="num" ng-class="{neg: b.missingFromCallback.length}">{{b.missingFromCallback.length}}</td>
+                        </tr>
+                        <tr ng-repeat-end ng-if="vm.openEvents[b.eventId]" class="detail-row">
+                            <td colspan="8">
+                                <ul class="notes" ng-if="b.warnings.length || b.duplicatesInside"><li class="note-warning" ng-repeat="w in b.warnings track by $index">{{w}}</li><li class="note-warning" ng-if="b.duplicatesInside">{{b.duplicatesInside}} hash(es) are repeated inside this batch.</li></ul>
+                                <h4>Missing from any callback ({{b.missingFromCallback.length}})</h4>
+                                <pre class="hash-list">{{b.missingFromCallback.length ? b.missingFromCallback.join('\n') : 'None. Every hash in this batch came back in a callback.'}}</pre>
+                                <h4>Without a signing event ({{b.withoutSigning.length}})</h4>
+                                <pre class="hash-list">{{b.withoutSigning.length ? b.withoutSigning.join('\n') : 'None.'}}</pre>
+                                <button type="button" class="btn" ng-click="vm.copyText(b.event.raw, 'Log line copied')">Copy log line</button>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="empty" ng-if="!vm.batchView.rows.length">No batch events to show.</p>
+                <div class="pager" ng-if="vm.batchView.pageCount > 1">
+                    <button type="button" class="btn" ng-disabled="vm.batchView.page <= 1" ng-click="vm.goToBatchPage(vm.batchView.page - 1)">Previous</button>
+                    <span>Page {{vm.batchView.page}} of {{vm.batchView.pageCount}}</span>
+                    <button type="button" class="btn" ng-disabled="vm.batchView.page >= vm.batchView.pageCount" ng-click="vm.goToBatchPage(vm.batchView.page + 1)">Next</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-head">
+                    <h3>Callback events ({{vm.callbackView.total | number}})</h3>
+                    <label class="choice"><input type="checkbox" ng-model="vm.callbackView.onlyIssues" ng-change="vm.callbackView.page = 1; vm.refreshAnalysis()"> Only callbacks needing review</label>
+                </div>
+                <p class="help">Shows whether every transaction in a callback was part of a batch.</p>
+                <div class="table-wrap" ng-if="vm.callbackView.rows.length">
+                    <table class="results-table">
+                        <thead><tr><th></th><th>Callback time</th><th>Source</th><th class="num">Declared size</th><th class="num">Hashes extracted</th><th class="num">Matched to batch</th><th class="num">Not found in batch</th></tr></thead>
+                        <tbody>
+                        <tr ng-repeat-start="c in vm.callbackView.rows track by c.eventId" ng-class="{open: vm.openEvents[c.eventId], bad: c.notInBatch.length}">
+                            <td class="col-tools"><button type="button" class="link-btn" ng-click="vm.toggleEvent(c.eventId)">{{vm.openEvents[c.eventId] ? 'Hide' : 'Details'}}</button></td>
+                            <td class="mono nowrap">{{c.tsText || 'n/a'}}</td>
+                            <td class="mono clip" title="{{c.fileName}}:{{c.lineNo}}">{{c.fileName}}:{{c.lineNo}}</td>
+                            <td class="num">{{c.declaredSize === null ? '-' : c.declaredSize}}</td>
+                            <td class="num">{{c.extracted}}</td>
+                            <td class="num">{{c.matchedToBatch}}</td>
+                            <td class="num" ng-class="{neg: c.notInBatch.length}">{{c.notInBatch.length}}</td>
+                        </tr>
+                        <tr ng-repeat-end ng-if="vm.openEvents[c.eventId]" class="detail-row">
+                            <td colspan="7">
+                                <ul class="notes" ng-if="c.warnings.length || c.duplicatesInside"><li class="note-warning" ng-repeat="w in c.warnings track by $index">{{w}}</li><li class="note-warning" ng-if="c.duplicatesInside">{{c.duplicatesInside}} hash(es) are repeated inside this callback.</li></ul>
+                                <h4>Not found in any batch ({{c.notInBatch.length}})</h4>
+                                <pre class="hash-list">{{c.notInBatch.length ? c.notInBatch.join('\n') : 'None. Every hash in this callback was part of a batch.'}}</pre>
+                                <button type="button" class="btn" ng-click="vm.copyText(c.event.raw, 'Log line copied')">Copy log line</button>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="empty" ng-if="!vm.callbackView.rows.length">No callback events to show.</p>
+                <div class="pager" ng-if="vm.callbackView.pageCount > 1">
+                    <button type="button" class="btn" ng-disabled="vm.callbackView.page <= 1" ng-click="vm.goToCallbackPage(vm.callbackView.page - 1)">Previous</button>
+                    <span>Page {{vm.callbackView.page}} of {{vm.callbackView.pageCount}}</span>
+                    <button type="button" class="btn" ng-disabled="vm.callbackView.page >= vm.callbackView.pageCount" ng-click="vm.goToCallbackPage(vm.callbackView.page + 1)">Next</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ------------------------------------------------------- STATISTICS -->
+        <div class="card" ng-if="vm.tab === 'stats'">
+            <p class="help">Based on {{vm.result.stats.eligible | number}} fully matched transaction(s). Incomplete, duplicate, ambiguous and negative-duration transactions are left out. Values are in seconds.</p>
+
+            <div class="table-wrap" ng-if="vm.result.stats.eligible">
+                <table class="results-table">
+                    <thead><tr><th>Duration</th><th class="num">Average</th><th class="num">Median</th><th class="num">Min</th><th class="num">Max</th><th class="num">P90</th><th class="num">P95</th><th class="num">P99</th></tr></thead>
+                    <tbody>
+                    <tr ng-repeat="m in vm.metrics">
+                        <td><strong>{{m.label}}</strong></td>
+                        <td class="num mono">{{m.stats.average | secs}}</td><td class="num mono">{{m.stats.median | secs}}</td>
+                        <td class="num mono">{{m.stats.min | secs}}</td><td class="num mono">{{m.stats.max | secs}}</td>
+                        <td class="num mono">{{m.stats.p90 | secs}}</td><td class="num mono">{{m.stats.p95 | secs}}</td><td class="num mono">{{m.stats.p99 | secs}}</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="empty" ng-if="!vm.result.stats.eligible">No fully matched transactions yet, so there is nothing to measure.</p>
+
+            <div class="charts" ng-if="vm.result.stats.eligible">
+                <div class="chart">
+                    <div class="card-head">
+                        <h3>Duration distribution</h3>
+                        <div class="segmented">
+                            <button type="button" class="seg" ng-repeat="m in vm.metrics" ng-class="{active: vm.distMetric === m.id}" ng-click="vm.selectMetric(m.id)">{{m.label}}</button>
+                        </div>
+                    </div>
+                    <div class="dist-bars">
+                        <div class="dist-col" ng-repeat="b in vm.distribution" title="{{b.count}} transaction(s) between {{b.from | secs}} s and {{b.to | secs}} s">
+                            <span class="dist-count">{{b.count}}</span>
+                            <span class="dist-bar" ng-style="{height: vm.barHeight(b, vm.distMax) + '%'}"></span>
+                        </div>
+                    </div>
+                    <div class="dist-axis"><span>{{vm.distribution[0].from | secs}} s</span><span>{{vm.distribution[vm.distribution.length - 1].to | secs}} s</span></div>
+                </div>
+            </div>
+
+            <div class="chart">
+                <h3>Transactions by status</h3>
+                <div class="hbars">
+                    <div class="hbar" ng-repeat="s in vm.statusBars">
+                        <span class="hbar-label">{{s.status}}</span>
+                        <span class="hbar-track"><span class="hbar-fill" ng-class="vm.statusClass(s.status)" ng-style="{width: s.width + '%'}"></span></span>
+                        <span class="hbar-count">{{s.count | number}}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </section>
 </main>
+
+<!-- ============================================================ DETAIL DIALOG -->
+<div class="modal-backdrop" ng-if="vm.detail" ng-click="vm.closeDetail()">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="h-detail" ng-click="$event.stopPropagation()">
+        <div class="modal-head">
+            <div>
+                <h2 id="h-detail">Transaction detail</h2>
+                <p class="mono hash-line">{{vm.detail.rec.hash}}</p>
+            </div>
+            <div class="actions">
+                <button type="button" class="btn" ng-click="vm.copyText(vm.detail.rec.hash, 'Hash copied')">Copy hash</button>
+                <button type="button" class="btn" ng-click="vm.closeDetail()">Close</button>
+            </div>
+        </div>
+
+        <div class="modal-body">
+            <p>
+                <span class="pill" ng-class="vm.statusClass(vm.detail.rec.status)">{{vm.detail.rec.status}}</span>
+                <span class="pill warn" ng-repeat="f in vm.detail.rec.flags">{{f}}</span>
+            </p>
+
+            <h3>Transaction information</h3>
+            <dl class="kv">
+                <dt>Source account</dt><dd class="mono">{{vm.detail.rec.src || '-'}}</dd>
+                <dt>Destination account</dt><dd class="mono">{{vm.detail.rec.dst || '-'}}</dd>
+                <dt>Asset</dt><dd class="mono">{{vm.detail.rec.asset || '-'}}</dd>
+                <dt>Description</dt><dd class="mono">{{vm.detail.rec.desc || '-'}}</dd>
+                <dt>Amount</dt><dd class="mono">{{vm.detail.rec.amount || '-'}}</dd>
+            </dl>
+
+            <h3>Durations</h3>
+            <div class="durations">
+                <div class="dur" ng-repeat="d in vm.detail.durations" ng-class="{neg: d.ms < 0}">
+                    <span class="dur-label">{{d.label}}</span>
+                    <span class="dur-value mono">{{d.ms | secs}}<span ng-if="d.ms !== null"> s</span></span>
+                    <span class="dur-note" ng-if="d.ms < 0">Negative: investigate</span>
+                </div>
+            </div>
+
+            <h3>Event timeline</h3>
+            <ol class="timeline">
+                <li class="tl-item" ng-repeat="item in vm.detail.timeline">
+                    <div class="tl-head">
+                        <strong>{{item.label}}</strong>
+                        <span class="mono">{{item.ev.tsText || 'no readable timestamp'}}</span>
+                        <span class="tl-delta" ng-class="{neg: item.delta < 0}" ng-if="item.delta !== null">+{{item.delta | secs}} s from previous</span>
+                        <span class="meta-inline">{{item.ev.fileName}}:{{item.ev.lineNo}}</span>
+                        <button type="button" class="link-btn" ng-click="vm.copyText(item.ev.raw, 'Log line copied')">Copy line</button>
+                    </div>
+                    <pre class="logline">{{item.ev.raw}}</pre>
+                </li>
+                <li class="tl-item tl-missing" ng-repeat="name in vm.detail.missing">
+                    <strong>Missing: {{name}}</strong>
+                    <span>No event with this hash was found in the uploaded files.</span>
+                </li>
+            </ol>
+
+            <div ng-if="vm.detail.others.length">
+                <h3>Other occurrences needing review ({{vm.detail.others.length}})</h3>
+                <p class="help">These events carry the same hash but were not used for the durations above.</p>
+                <ul class="timeline">
+                    <li class="tl-item" ng-repeat="o in vm.detail.others">
+                        <div class="tl-head">
+                            <strong>{{o.label}}</strong>
+                            <span class="mono">{{o.ev.tsText}}</span>
+                            <span class="meta-inline">{{o.ev.fileName}}:{{o.ev.lineNo}}</span>
+                            <button type="button" class="link-btn" ng-click="vm.copyText(o.ev.raw, 'Log line copied')">Copy line</button>
+                        </div>
+                        <pre class="logline">{{o.ev.raw}}</pre>
+                    </li>
+                </ul>
+            </div>
+
+            <button type="button" class="btn" ng-click="vm.copyAllLines(vm.detail)">Copy all log lines</button>
+        </div>
+    </div>
+</div>
 
 <div class="toast" ng-if="vm.toast" ng-class="vm.toast.kind" role="status">{{vm.toast.text}}</div>
 
 <script src="app.js"></script>
-<script src="LogParserService.js"></script>
+<script src="FileUploadService.js"></script>
 <script src="DateTimeService.js"></script>
-<script src="MatchingService.js"></script>
+<script src="TransactionExtractorService.js"></script>
 <script src="DurationService.js"></script>
+<script src="TransactionCorrelationService.js"></script>
+<script src="StatisticsService.js"></script>
+<script src="LogParserService.js"></script>
 <script src="ExportService.js"></script>
 <script src="DurationFilter.js"></script>
 <script src="LogAnalyzerController.js"></script>

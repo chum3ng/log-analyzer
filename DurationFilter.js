@@ -1,7 +1,16 @@
 (function () {
     'use strict';
 
-    angular.module('logDurationApp').filter('duration', DurationFilter);
+    angular.module('logDurationApp')
+        .filter('duration', DurationFilter)
+        .filter('secs', SecsFilter);
+
+    /** {{ ms | secs }} -> seconds with three decimals ("0.391"); "n/a" when the duration is unavailable. */
+    function SecsFilter() {
+        return function (ms) {
+            return ms === null || ms === undefined || isNaN(ms) ? 'n/a' : (ms / 1000).toFixed(3);
+        };
+    }
 
     /**
      * Formats a duration given in MILLISECONDS (fractions allowed).

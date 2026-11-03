@@ -4,205 +4,209 @@
     angular
         .module('logDurationApp')
         .controller('LogAnalyzerController', LogAnalyzerController)
-        .directive('logFileInput', logFileInput);
+        .directive('logFileInput', logFileInput)
+        .directive('fileDropZone', fileDropZone);
 
     LogAnalyzerController.$inject = [
-        '$timeout', '$filter', 'AppConfig', 'LogParserService', 'DateTimeService', 'DurationService', 'ExportService'
+        '$timeout', '$rootScope', '$document', 'AppConfig', 'FileUploadService', 'LogParserService',
+        'TransactionExtractorService', 'StatisticsService', 'TransactionCorrelationService', 'ExportService'
     ];
 
-    var SAMPLE_MATCH = 'e1504e3edc8174dc346c74f76760c2d3cb4d5d453632d8a1fef84b5624a2aed7';
-
-    var SAMPLE_LOG = [
-        '2026-11-02 02:31:46.697|a1a5eb3|camel-1-148-rabbitmq://tps-trx|INFO|a7d98df9a906ad59|69f86071ace83ed3|CoreTransferListProcessor|57|Send transfer batch to core size: 10 trxHash: [e1504e3edc8174dc346c74f76760c2d3cb4d5d453632d8a1fef84b5624a2aed7, 63fe26f19ace34ff7a2bdba6f23f7130bf2ac0258c5027c6b8ff437c001e7b1d, 1f326573d1feb53252985adcd0645043cef8a66ae742879559e26dedd7770017, 0abbe22dea55a3c906579e5b664be421eb3b35198b1399e1b31ae411dba5cae8, e99c27d76c2ffc79d64015cae50a8498231823effcc89f992eb8e57b6dc12537, 2c404688eb716b46a7d0d9f9ae8d1ba486c50c83b18347ecc4ca3f2f7fd78c2b, 9f56e9e4745818abf8f306c481613cf39b74bde850cce2c5a16c84ab34491e8a, 000881015b99d56f4044de9db46dee53549dc65ed1bedb543245001e9e319bdc, 89b759f371a1d05fc3043885e56b542946831b626bc4aae7c263f5e624a83691, eea42040f7eb23cd4a20d013d89daebbc847505c740a7820002928490f96975f]',
-        '2026-11-02 02:31:53.720|a1a5eb3|camel-1-146-rabbitmq://tps-trx|INFO|cd1b37530ac8e45a|8a01b528a8bba6bc|CoreTransferListProcessor|57|Send transfer batch to core size: 13 trxHash: [96fc669ad79b6ae4abd6006bd8e8068e1e8edd1c72c1b948bba7a3aeb5123853, ae75d3d3ce680757cbe04d94f516da29af3aa47caf87c6efbff41558e1dac6de, 6610465e511561ab06b8270ed97bb3e04f6c63ab4ac4de58d34d69ae99f277e6, d90bc312c1b152774cd88952b4dd4d82b50be4647cf774d5e0baafe44d3336ed, 4c536e40a154f9c4da18dc71007c17a9efbbc2370a0441673de260e36f3f0876, 721ed7757275eae74d2bb78925aa45155d96b784a90ec3c34ed225d7be182020, 735403081d8231d925dbcc6f13fff20201e53d88b552ffa1162418d226e1a36c, 9440741a29b5178cbea071f9cae59ba2edf8f2ce68f9fae29dfac7783d51e0a7, 5fbe0024b145cb05029c9010de8bfa38366555259ed22913b7c5814abbb5fa6e, 9cae4bb3ae310b66789afe8a15fa562d009fd7fa931fba95d599368650fe5948, 04bf4c492490f68e29b132920003f1e1929aee5f79ee4881ae9340e593dba72e, 262b006550a9462748a49a6f8c3b759675da892d38657c92ffa7f4adc3cad18a, 6cb9dcf94e67a41677920e668d60e64efd8c89d313db048a541ac97ff73d0510]',
-        '2026-11-02 02:31:50.021|a1a5eb3|camel-1-36-rabbitmq://tee|INFO|8a88384b8bb3b011|3453da14afa1f060|CallbackServiceImpl|311|Received business transaction list. Size: 10 trxHashes: [89b759f371a1d05fc3043885e56b542946831b626bc4aae7c263f5e624a83691, eea42040f7eb23cd4a20d013d89daebbc847505c740a7820002928490f96975f, 000881015b99d56f4044de9db46dee53549dc65ed1bedb543245001e9e319bdc, 0abbe22dea55a3c906579e5b664be421eb3b35198b1399e1b31ae411dba5cae8, 1f326573d1feb53252985adcd0645043cef8a66ae742879559e26dedd7770017, 2c404688eb716b46a7d0d9f9ae8d1ba486c50c83b18347ecc4ca3f2f7fd78c2b, 63fe26f19ace34ff7a2bdba6f23f7130bf2ac0258c5027c6b8ff437c001e7b1d, 9f56e9e4745818abf8f306c481613cf39b74bde850cce2c5a16c84ab34491e8a, e1504e3edc8174dc346c74f76760c2d3cb4d5d453632d8a1fef84b5624a2aed7, e99c27d76c2ffc79d64015cae50a8498231823effcc89f992eb8e57b6dc12537]',
-        '2026-11-02 02:31:57.500|a1a5eb3|camel-1-32-rabbitmq://tee|INFO|2fce53f5983bc85e|91b67e5b409e26f4|CallbackServiceImpl|311|Received business transaction list. Size: 3 trxHashes: [6610465e511561ab06b8270ed97bb3e04f6c63ab4ac4de58d34d69ae99f277e6, 96fc669ad79b6ae4abd6006bd8e8068e1e8edd1c72c1b948bba7a3aeb5123853, ae75d3d3ce680757cbe04d94f516da29af3aa47caf87c6efbff41558e1dac6de]'
-    ].join('\n\n');
-
-    function LogAnalyzerController($timeout, $filter, AppConfig, Parser, DateTime, Duration, Exporter) {
+    /**
+     * The controller only coordinates: services parse, correlate, measure and export;
+     * this file holds UI state (selection, filters, paging, tabs, the detail dialog).
+     */
+    function LogAnalyzerController($timeout, $rootScope, $document, AppConfig, Upload, Parser, Extractor, Stats, Correlation, Exporter) {
         var vm = this;
-        var durationFmt = $filter('duration');
         var toastTimer = null;
+        var LABELS = Extractor.LABELS;
 
-        // ---------------------------------------------------------------- state
-        vm.logText = '';
-        vm.fileName = '';
-        vm.fileSize = '';
-        vm.fileError = '';
-        vm.loadingFile = false;
-        vm.lineCount = 0;
-
-        vm.config = {
-            startText: 'Send transfer batch to core size:',
-            endText: 'Received business transaction list.',
-            matchText: SAMPLE_MATCH,
-            matchMode: 'contains',
-            caseSensitive: true,
-            pairing: 'firstFirst',
-            allowEndReuse: false,
-            dt: DateTime.defaultConfig()
-        };
-
-        vm.matchModes = [
-            { id: 'contains', label: 'Contains' },
-            { id: 'exact', label: 'Exact (whole token)' },
-            { id: 'regex', label: 'Regular expression' }
-        ];
-        vm.pairingOptions = [
-            { id: 'firstFirst', label: 'First start to first end', hint: 'Earliest start with earliest end for each Match Text.' },
-            { id: 'firstLast', label: 'First start to last end', hint: 'Earliest start with latest end.' },
-            { id: 'all', label: 'All matching entries', hint: 'Every start paired with every later end.' },
-            { id: 'sequential', label: 'Sequential pairing', hint: 'Each start with the next unused end, in time order.' }
-        ];
-        vm.timezones = ['UTC', 'local', '+07:00', '+08:00', '+00:00', '-05:00'];
-        vm.supportedFormats = DateTime.supportedFormats;
-        vm.pageSize = AppConfig.PAGE_SIZE;
-
-        vm.running = false;
-        vm.progress = { processed: 0, total: 0, percent: 0 };
+        // ------------------------------------------------------------------ state
+        vm.files = Upload.files;
+        vm.uploadMessages = [];
+        vm.analyzing = false;
+        vm.stage = '';
+        vm.progress = { percent: 0, fileName: '' };
         vm.errors = [];
-        vm.fieldErrors = {};
+
         vm.result = null;
         vm.summaryCards = [];
-        vm.distMax = 0;
-        vm.expanded = {};
-        vm.toast = null;
+        vm.tab = 'transactions';
+        vm.statuses = Correlation.STATUSES;
+        vm.statusChips = [];
+        vm.flagOptions = [];
+        vm.metrics = [];
+        vm.distMetric = 'signingToCallback';
+        vm.statusBars = [];
 
-        vm.filter = { text: '', status: '' };
+        vm.filter = { text: '', status: '', flag: '' };
         vm.sort = { key: 'no', reverse: false };
         vm.page = 1;
         vm.pageCount = 1;
+        vm.pageSize = AppConfig.PAGE_SIZE;
         vm.filteredCount = 0;
         vm.pageRows = [];
+        vm.filteredRows = [];
 
-        // -------------------------------------------------------------- actions
-        vm.onFileChosen = onFileChosen;
-        vm.onLogTextChange = updateLineCount;
-        vm.loadSample = loadSample;
-        vm.clearLog = clearLog;
+        vm.batchView = { rows: [], page: 1, pageCount: 1, total: 0, onlyIssues: false };
+        vm.callbackView = { rows: [], page: 1, pageCount: 1, total: 0, onlyIssues: false };
+        vm.openEvents = {};
+
+        vm.detail = null;
+        vm.toast = null;
+
+        // ---------------------------------------------------------------- actions
+        vm.addFiles = addFiles;
+        vm.removeFile = function (id) { Upload.remove(id); };
+        vm.clearAll = clearAll;
+        vm.canAnalyze = function () { return !vm.analyzing && Upload.usableFiles().length > 0; };
         vm.analyze = analyze;
         vm.cancel = cancel;
-        vm.sortBy = sortBy;
-        vm.sortSlowest = function () { vm.sort = { key: 'durationMs', reverse: true }; vm.page = 1; refreshView(); };
+
+        vm.setStatus = function (status) { vm.filter.status = status; vm.page = 1; refreshView(); };
         vm.refreshView = function () { vm.page = 1; refreshView(); };
-        vm.goToPage = goToPage;
-        vm.toggleRow = function (row) { vm.expanded[row.no] = !vm.expanded[row.no]; };
-        vm.barWidth = barWidth;
-        vm.preview = preview;
-        vm.distHeight = function (bin) { return vm.distMax ? Math.max(4, Math.round(bin.count / vm.distMax * 100)) : 0; };
-        vm.errorFor = function (field) { return vm.fieldErrors[field] || ''; };
-        vm.exportCsv = exportCsv;
-        vm.exportJson = exportJson;
-        vm.copyRow = function (row) { copyText(Exporter.rowToText(row), 'Row copied'); };
-        vm.copyAll = function () { copyText(Exporter.rowsToText(vm.result.rows), 'All results copied (tab-separated)'); };
-        vm.fmt = durationFmt;
+        vm.sortBy = sortBy;
+        vm.sortSlowest = function () { vm.sort = { key: 'signingToCallback', reverse: true }; vm.page = 1; refreshView(); };
+        vm.goToPage = function (p) { vm.page = p; refreshView(); };
+        vm.statusClass = function (s) { return 'st-' + String(s).toLowerCase().replace(/_/g, '-'); };
+        vm.rowNo = function (i) { return (vm.page - 1) * vm.pageSize + i + 1; };
 
-        loadSample();
+        vm.refreshAnalysis = refreshAnalysis;
+        vm.goToBatchPage = function (p) { vm.batchView.page = p; refreshAnalysis(); };
+        vm.goToCallbackPage = function (p) { vm.callbackView.page = p; refreshAnalysis(); };
+        vm.toggleEvent = function (id) { vm.openEvents[id] = !vm.openEvents[id]; };
+        vm.selectMetric = function (id) { vm.distMetric = id; buildDistribution(); };
 
-        // ------------------------------------------------------------ log input
-        function updateLineCount() {
-            vm.lineCount = Parser.countLines(vm.logText);
-        }
+        vm.openDetail = function (rec) { vm.detail = buildDetail(rec); };
+        vm.closeDetail = function () { vm.detail = null; };
+        vm.copyText = copyText;
+        vm.copyAllLines = function (d) {
+            var all = d.rec.all.signings.concat(d.rec.all.batches, d.rec.all.callbacks).map(function (e) { return e.raw; });
+            copyText(all.join('\n'), 'Log lines copied');
+        };
 
-        function onFileChosen(file) {
-            vm.fileError = '';
-            vm.loadingFile = true;
-            Parser.readFile(file).then(function (info) {
-                vm.logText = info.text;
-                vm.fileName = info.name;
-                vm.fileSize = Parser.formatBytes(info.size);
-                updateLineCount();
-                resetResult();
-            }, function (msg) {
-                vm.fileError = String(msg);
-            }).finally(function () { vm.loadingFile = false; });
-        }
+        vm.exportCsv = function () { save('transactions.csv', Exporter.transactionsCsv(vm.result.records), 'text/csv;charset=utf-8', 'CSV downloaded'); };
+        vm.exportJson = function () {
+            var files = Upload.files.map(function (f) { return { name: f.name, size: f.size, lines: f.lines, status: f.status }; });
+            save('transactions.json', Exporter.transactionsJson(vm.result, vm.result.records, files), 'application/json;charset=utf-8', 'JSON downloaded');
+        };
+        vm.exportUnmatched = function () {
+            var rows = vm.result.records.filter(function (r) { return r.status !== 'COMPLETE'; });
+            save('unmatched-transactions.csv', Exporter.transactionsCsv(rows), 'text/csv;charset=utf-8', rows.length + ' unmatched transaction(s) downloaded');
+        };
+        vm.exportAnalysis = function () { save('batch-callback-analysis.csv', Exporter.analysisCsv(vm.result.batches, vm.result.callbacks), 'text/csv;charset=utf-8', 'Analysis downloaded'); };
+        vm.exportLogLines = function () {
+            var rows = filteredOrAll();
+            save('transaction-log-lines.txt', Exporter.logLinesText(rows), 'text/plain;charset=utf-8', 'Log lines for ' + rows.length + ' transaction(s) downloaded');
+        };
 
-        function loadSample() {
-            vm.logText = SAMPLE_LOG;
-            vm.fileName = '';
-            vm.fileSize = '';
-            vm.fileError = '';
-            vm.config.startText = 'Send transfer batch to core size:';
-            vm.config.endText = 'Received business transaction list.';
-            vm.config.matchText = SAMPLE_MATCH;
-            updateLineCount();
-            resetResult();
-        }
+        vm.preview = function (text) {
+            var n = AppConfig.LINE_PREVIEW;
+            return text && text.length > n ? text.slice(0, n) + ' ... (' + (text.length - n) + ' more characters)' : text;
+        };
+        vm.barHeight = function (bin, max) { return max ? Math.max(4, Math.round(bin.count / max * 100)) : 0; };
 
-        function clearLog() {
-            Duration.cancel();
-            vm.logText = '';
-            vm.fileName = '';
-            vm.fileSize = '';
-            vm.fileError = '';
-            vm.running = false;
-            updateLineCount();
-            resetResult();
-        }
+        // Escape closes the detail dialog.
+        $document.on('keydown', function (e) {
+            if (e.key === 'Escape' && vm.detail) { $rootScope.$evalAsync(function () { vm.detail = null; }); }
+        });
 
-        function resetResult() {
+        // ------------------------------------------------------------ file handling
+        function addFiles(files) {
+            var res = Upload.addFiles(files);
+            vm.uploadMessages = res.rejected;
             vm.result = null;
             vm.errors = [];
-            vm.fieldErrors = {};
-            vm.summaryCards = [];
-            vm.expanded = {};
-            vm.pageRows = [];
-            vm.filteredCount = 0;
         }
 
-        // -------------------------------------------------------------- analyze
-        function buildConfig() {
-            var c = angular.copy(vm.config);
-            c.dt.group = Number(c.dt.group);
-            return c;
+        function clearAll() {
+            Parser.cancel();
+            Upload.clear();
+            vm.analyzing = false;
+            vm.uploadMessages = [];
+            vm.errors = [];
+            vm.result = null;
+            vm.detail = null;
         }
 
+        // ----------------------------------------------------------------- analyze
         function analyze() {
-            if (vm.running) { return; }
-            resetResult();
-            vm.running = true;
-            vm.progress = { processed: 0, total: vm.lineCount, percent: 0 };
+            if (!vm.canAnalyze()) { return; }
+            var entries = Upload.usableFiles();
+            vm.analyzing = true;
+            vm.result = null;
+            vm.detail = null;
+            vm.errors = [];
+            vm.uploadMessages = [];
+            vm.stage = 'Reading log files';
+            vm.progress = { percent: 0, fileName: '' };
 
-            var lines = Parser.splitLines(vm.logText);
-            Duration.analyze(lines, buildConfig(), function (p) { vm.progress = p; }).then(function (res) {
-                vm.result = res;
+            Parser.parseFiles(entries, function (p) { vm.progress = p; }).then(function (parsed) {
+                vm.stage = 'Correlating transactions by hash';
+                return $timeout(function () { return parsed; }, 30);      // let the UI repaint before the heavy build
+            }).then(function (parsed) {
+                var result = parsed.run.build();
+                result.totals.files = parsed.files;
+                result.totals.lines = parsed.lines;
+                result.stats = Stats.summarize(result.records);
+                vm.result = result;
+                vm.errors = Upload.files.filter(function (f) { return f.status === 'error'; })
+                    .map(function (f) { return f.name + ': ' + f.error; });
+                prepareDashboard(result);
+                vm.tab = 'transactions';
+                vm.filter = { text: '', status: '', flag: '' };
                 vm.sort = { key: 'no', reverse: false };
                 vm.page = 1;
-                buildSummary(res);
                 refreshView();
+                refreshAnalysis();
             }, function (err) {
                 if (err && err.cancelled) { return; }
-                vm.errors = (err && err.errors) || [{ field: 'log', message: 'Analysis failed.' }];
-                vm.errors.forEach(function (e) { vm.fieldErrors[e.field] = e.message; });
-            }).finally(function () { vm.running = false; });
+                vm.errors = ['Analysis failed: ' + ((err && err.message) || 'unknown error')];
+            }).finally(function () { vm.analyzing = false; vm.stage = ''; });
         }
 
         function cancel() {
-            Duration.cancel();
-            vm.running = false;
+            Parser.cancel();
+            vm.analyzing = false;
         }
 
-        function buildSummary(res) {
-            var t = res.totals, s = res.stats;
-            function dur(ms) { return ms === null ? { main: '-', sub: '' } : { main: durationFmt(ms, 's'), sub: durationFmt(ms) }; }
-            var cards = [
-                { label: 'Start matches', main: t.startMatches },
-                { label: 'End matches', main: t.endMatches },
-                { label: 'Paired', main: t.paired, tone: t.paired ? 'ok' : '' },
-                { label: 'Unmatched starts', main: t.unmatchedStarts, tone: t.unmatchedStarts ? 'warn' : '' },
-                { label: 'Unmatched ends', main: t.unmatchedEnds, tone: t.unmatchedEnds ? 'warn' : '' }
+        function prepareDashboard(res) {
+            var t = res.totals;
+            vm.summaryCards = [
+                { label: 'Uploaded files', main: t.files },
+                { label: 'Log lines processed', main: t.lines },
+                { label: 'Batch events', main: t.batchEvents },
+                { label: 'Signing events', main: t.signingEvents },
+                { label: 'Callback events', main: t.callbackEvents },
+                { label: 'Unique transaction hashes', main: t.uniqueHashes },
+                { label: 'Fully matched', main: t.fullyMatched, tone: t.fullyMatched ? 'ok' : '' },
+                { label: 'With missing events', main: t.withMissing, tone: t.withMissing ? 'warn' : '' },
+                { label: 'Duplicate or ambiguous', main: t.duplicateOrAmbiguous, tone: t.duplicateOrAmbiguous ? 'warn' : '' }
             ];
-            [['Average', s.average], ['Median', s.median], ['Minimum', s.min], ['Maximum', s.max],
-             ['P90', s.p90], ['P95', s.p95], ['P99', s.p99]].forEach(function (x) {
-                var d = dur(x[1]);
-                cards.push({ label: x[0], main: d.main, sub: d.sub });
-            });
-            vm.summaryCards = cards;
-            vm.distMax = res.distribution.reduce(function (m, b) { return b.count > m ? b.count : m; }, 0);
+            if (t.negative || t.invalidTime) {
+                vm.summaryCards.push({ label: 'Timing issues', main: t.negative + t.invalidTime, tone: 'bad' });
+            }
+
+            vm.statusChips = [{ id: '', label: 'All', count: res.records.length }].concat(
+                vm.statuses.map(function (s) { return { id: s, label: s, count: res.statusCounts[s] }; }));
+
+            var flagCounts = {};
+            res.records.forEach(function (r) { r.flags.forEach(function (f) { flagCounts[f] = (flagCounts[f] || 0) + 1; }); });
+            vm.flagOptions = Object.keys(flagCounts).sort().map(function (f) { return { id: f, label: f + ' (' + flagCounts[f] + ')' }; });
+
+            vm.metrics = res.stats.metrics;
+            var max = res.records.length || 1;
+            vm.statusBars = vm.statuses.map(function (s) { return { status: s, count: res.statusCounts[s], width: res.statusCounts[s] ? Math.max(0.5, res.statusCounts[s] / max * 100) : 0 }; });
+            buildDistribution();
         }
 
-        // ------------------------------------------------- results table (view)
+        function buildDistribution() {
+            var m = vm.metrics.filter(function (x) { return x.id === vm.distMetric; })[0];
+            vm.distribution = m ? m.distribution : [];
+            vm.distMax = vm.distribution.reduce(function (mx, b) { return b.count > mx ? b.count : mx; }, 0);
+        }
+
+        // ---------------------------------------------------------- transactions view
         function sortBy(key) {
             if (vm.sort.key === key) { vm.sort.reverse = !vm.sort.reverse; }
             else { vm.sort = { key: key, reverse: false }; }
@@ -211,61 +215,102 @@
         }
 
         function refreshView() {
-            var rows = vm.result ? vm.result.rows : [];
+            if (!vm.result) { return; }
             var q = String(vm.filter.text || '').trim().toLowerCase();
-            var status = vm.filter.status;
+            var status = vm.filter.status, flag = vm.filter.flag;
 
-            var out = rows.filter(function (r) {
+            var rows = vm.result.records.filter(function (r) {
                 if (status && r.status !== status) { return false; }
+                if (flag && r.flags.indexOf(flag) === -1) { return false; }
                 if (!q) { return true; }
-                var hay = [r.key, r.startLine, r.endLine, r.startTs, r.endTs, r.status, r.error].join(' ').toLowerCase();
-                return hay.indexOf(q) !== -1;
+                return r.key.indexOf(q) !== -1 || r.src.toLowerCase().indexOf(q) !== -1 || r.dst.toLowerCase().indexOf(q) !== -1 ||
+                       r.asset.toLowerCase().indexOf(q) !== -1 || r.amount.indexOf(q) !== -1 || r.desc.toLowerCase().indexOf(q) !== -1;
             });
 
-            var key = vm.sort.key, dir = vm.sort.reverse ? -1 : 1;
-            out.sort(function (a, b) {
-                var x = a[key], y = b[key];
-                var xn = x === null || x === undefined || x === '', yn = y === null || y === undefined || y === '';
-                if (xn || yn) { return xn && yn ? 0 : (xn ? 1 : -1); }   // blanks always last
-                if (typeof x === 'number' && typeof y === 'number') { return (x - y) * dir; }
-                return String(x).localeCompare(String(y)) * dir;
-            });
+            if (vm.sort.key !== 'no') {
+                var key = vm.sort.key, dir = vm.sort.reverse ? -1 : 1;
+                rows.sort(function (a, b) {
+                    var x = a[key], y = b[key];
+                    var xn = x === null || x === undefined || x === '', yn = y === null || y === undefined || y === '';
+                    if (xn || yn) { return xn && yn ? 0 : (xn ? 1 : -1); }   // unavailable values always last
+                    if (typeof x === 'number' && typeof y === 'number') { return (x - y) * dir; }
+                    return String(x).localeCompare(String(y)) * dir;
+                });
+            } else if (vm.sort.reverse) {
+                rows.reverse();
+            }
 
-            vm.filteredCount = out.length;
-            vm.pageCount = Math.max(1, Math.ceil(out.length / vm.pageSize));
+            vm.filteredRows = rows;
+            vm.filteredCount = rows.length;
+            vm.pageCount = Math.max(1, Math.ceil(rows.length / vm.pageSize));
             vm.page = Math.min(Math.max(1, vm.page), vm.pageCount);
-            vm.pageRows = out.slice((vm.page - 1) * vm.pageSize, vm.page * vm.pageSize);
+            vm.pageRows = rows.slice((vm.page - 1) * vm.pageSize, vm.page * vm.pageSize);
         }
 
-        function goToPage(p) {
-            vm.page = p;
-            refreshView();
+        function filteredOrAll() {
+            return vm.filter.text || vm.filter.status || vm.filter.flag ? vm.filteredRows : vm.result.records;
         }
 
-        function barWidth(row) {
-            var max = vm.result && vm.result.stats.max;
-            if (row.status !== 'success' || !max) { return 0; }
-            return Math.max(2, Math.round(row.durationMs / max * 100));
+        // ---------------------------------------------------- batch / callback view
+        function refreshAnalysis() {
+            if (!vm.result) { return; }
+            page(vm.batchView, vm.result.batches, function (b) { return b.missingFromCallback.length || b.withoutSigning.length || b.warnings.length; });
+            page(vm.callbackView, vm.result.callbacks, function (c) { return c.notInBatch.length || c.warnings.length; });
         }
 
-        function preview(text) {
-            var limit = AppConfig.SAMPLE_LINE_PREVIEW;
-            return text && text.length > limit ? text.slice(0, limit) + ' ... (' + (text.length - limit) + ' more characters)' : text;
+        function page(view, all, isIssue) {
+            var list = view.onlyIssues ? all.filter(isIssue) : all;
+            var size = AppConfig.ANALYSIS_PAGE_SIZE;
+            view.total = list.length;
+            view.pageCount = Math.max(1, Math.ceil(list.length / size));
+            view.page = Math.min(Math.max(1, view.page), view.pageCount);
+            view.rows = list.slice((view.page - 1) * size, view.page * size);
         }
 
-        // --------------------------------------------------------------- export
-        function exportCsv() {
-            Exporter.download('log-durations-' + Exporter.timestampForFile() + '.csv', Exporter.toCsv(vm.result.rows), 'text/csv;charset=utf-8');
-            showToast('CSV downloaded');
+        // -------------------------------------------------------------- detail view
+        function cmpTs(a, b) { return a === null ? (b === null ? 0 : 1) : (b === null ? -1 : a - b); }
+
+        function buildDetail(rec) {
+            var chosen = [{ type: 'SIGNING', ev: rec.signing }, { type: 'BATCH', ev: rec.batch }, { type: 'CALLBACK', ev: rec.callback }];
+            var timeline = chosen.filter(function (x) { return x.ev; }).map(function (x) {
+                return { type: x.type, label: LABELS[x.type], ev: x.ev };
+            });
+            timeline.sort(function (a, b) { return cmpTs(a.ev.ts, b.ev.ts) || Extractor.ORDER[a.type] - Extractor.ORDER[b.type]; });
+
+            var prev = null;
+            timeline.forEach(function (item) {
+                item.delta = prev !== null && item.ev.ts !== null ? (item.ev.ts - prev) / 1000 : null;
+                if (item.ev.ts !== null) { prev = item.ev.ts; }
+            });
+
+            var shown = {};
+            timeline.forEach(function (item) { shown[item.ev.id] = true; });
+            var others = [];
+            [rec.all.signings, rec.all.batches, rec.all.callbacks].forEach(function (list) {
+                list.forEach(function (ev) { if (!shown[ev.id]) { others.push({ label: LABELS[ev.type], ev: ev }); } });
+            });
+
+            return {
+                rec: rec,
+                timeline: timeline,
+                missing: chosen.filter(function (x) { return !x.ev; }).map(function (x) { return LABELS[x.type]; }),
+                others: others,
+                durations: [
+                    { label: 'Signing to Batch', ms: rec.signingToBatch },
+                    { label: 'Batch to Callback', ms: rec.batchToCallback },
+                    { label: 'Signing to Callback', ms: rec.signingToCallback }
+                ]
+            };
         }
 
-        function exportJson() {
-            Exporter.download('log-durations-' + Exporter.timestampForFile() + '.json', Exporter.toJson(vm.result, buildConfig()), 'application/json;charset=utf-8');
-            showToast('JSON downloaded');
+        // --------------------------------------------------------------- utilities
+        function save(name, parts, mime, message) {
+            Exporter.download(Exporter.timestampForFile() + '-' + name, parts, mime);
+            showToast(message);
         }
 
-        function copyText(text, okMessage) {
-            Exporter.copy(text).then(function () { showToast(okMessage); }, function (msg) { showToast(String(msg), 'error'); });
+        function copyText(text, message) {
+            Exporter.copy(text).then(function () { showToast(message || 'Copied'); }, function (msg) { showToast(String(msg), 'error'); });
         }
 
         function showToast(text, kind) {
@@ -275,19 +320,47 @@
         }
     }
 
-    /** <input type="file" log-file-input="vm.onFileChosen(file)"> */
+    /** <input type="file" multiple log-file-input="vm.addFiles(files)"> */
     function logFileInput() {
         return {
             restrict: 'A',
-            scope: { onFile: '&logFileInput' },
+            scope: { onFiles: '&logFileInput' },
             link: function (scope, element) {
                 element.on('change', function (e) {
-                    var file = e.target.files && e.target.files[0];
-                    if (!file) { return; }
-                    scope.$apply(function () { scope.onFile({ file: file }); });
-                    e.target.value = ''; // allow re-selecting the same file
+                    var files = Array.prototype.slice.call(e.target.files || []);   // copy before the input is reset
+                    if (!files.length) { return; }
+                    scope.$apply(function () { scope.onFiles({ files: files }); });
+                    e.target.value = '';
                 });
                 scope.$on('$destroy', function () { element.off('change'); });
+            }
+        };
+    }
+
+    /** <div file-drop-zone="vm.addFiles(files)"> adds the class "dragging" while files hover over it. */
+    function fileDropZone() {
+        return {
+            restrict: 'A',
+            scope: { onFiles: '&fileDropZone' },
+            link: function (scope, element) {
+                var depth = 0;
+                element.on('dragenter', function (e) { e.preventDefault(); depth++; element.addClass('dragging'); });
+                element.on('dragover', function (e) {
+                    e.preventDefault();
+                    if (e.dataTransfer) { e.dataTransfer.dropEffect = 'copy'; }
+                });
+                element.on('dragleave', function () {
+                    depth = Math.max(0, depth - 1);
+                    if (!depth) { element.removeClass('dragging'); }
+                });
+                element.on('drop', function (e) {
+                    e.preventDefault();
+                    depth = 0;
+                    element.removeClass('dragging');
+                    var files = Array.prototype.slice.call((e.dataTransfer && e.dataTransfer.files) || []);
+                    if (files.length) { scope.$apply(function () { scope.onFiles({ files: files }); }); }
+                });
+                scope.$on('$destroy', function () { element.off('dragenter dragover dragleave drop'); });
             }
         };
     }
