@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en" ng-app="logDurationApp">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dynamic Log Duration Analyzer</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/angular.js/1.8.3/angular.min.js"></script>
+</head>
+<body ng-controller="LogAnalyzerController as vm" ng-cloak>
+
+<header class="app-header">
+    <div class="wrap">
+        <h1>Dynamic Log Duration Analyzer</h1>
+        <p>Find a start line and an end line that share the same transaction ID, then measure the time between them. Your log never leaves this browser tab.</p>
+    </div>
+</header>
+
+<main class="wrap">
+
+    <!-- ============================================================ A. LOG INPUT -->
+    <section class="card" aria-labelledby="h-input">
+        <div class="card-head">
+            <h2 id="h-input">Log input</h2>
+            <div class="actions">
+                <label class="btn" for="logFile">Upload log file</label>
+                <input id="logFile" class="visually-hidden" type="file" accept=".log,.txt,.out" log-file-input="vm.onFileChosen(file)">
+                <button type="button" class="btn" ng-click="vm.loadSample()">Load sample</button>
+                <button type="button" class="btn btn-quiet" ng-click="vm.clearLog()">Clear</button>
+            </div>
+        </div>
+
+        <p class="meta">
+            <span><strong>{{vm.lineCount | number}}</strong> lines</span>
+            <span ng-if="vm.fileName">File: <strong>{{vm.fileName}}</strong> ({{vm.fileSize}})</span>
+            <span ng-if="vm.loadingFile">Reading file...</span>
+        </p>
+        <p class="msg msg-error" ng-if="vm.fileError" role="alert">{{vm.fileError}}</p>
+        <p class="msg msg-error" ng-if="vm.errorFor('log')" role="alert">{{vm.errorFor('log')}}</p>
+
+        <label class="visually-hidden" for="logText">Log content</label>
+        <textarea id="logText" class="log-area" spellcheck="false" wrap="off"
+                  ng-model="vm.logText" ng-change="vm.onLogTextChange()"
+                  ng-model-options="{ debounce: 250 }"
+                  placeholder="Paste log lines here, or upload a .log, .txt or .out file. You can edit the text before analyzing."></textarea>
+    </section>
+
+    <!-- ================================================== B. MATCHING CONFIGURATION -->
+    <section class="card" aria-labelledby="h-match">
+        <div class="card-head"><h2 id="h-match">Matching</h2></div>
+
+        <div class="field" ng-class="{'has-error': vm.errorFor('startText')}">
+            <label for="startText">Start Text</label>
+            <input id="startText" type="text" ng-model="vm.config.startText" spellcheck="false" autocomplete="off">
+            <p class="help">Identifies the starting log line.</p>
+            <p class="msg msg-error" ng-if="vm.errorFor('startText')">{{vm.errorFor('startText')}}</p>
+        </div>
+
+        <div class="field" ng-class="{'has-error': vm.errorFor('endText')}">
+            <label for="endText">End Text</label>
+            <input id="endText" type="text" ng-model="vm.config.endText" spellcheck="false" autocomplete="off">
+            <p class="help">Identifies the ending log line.</p>
+            <p class="msg msg-error" ng-if="vm.errorFor('endText')">{{vm.errorFor('endText')}}</p>
+        </div>
+
+        <div class="field" ng-class="{'has-error': vm.errorFor('matchText')}">
+            <label for="matchText">Match Text</label>
+            <input id="matchText" type="text" class="mono" ng-model="vm.config.matchText" spellcheck="false" autocomplete="off">
+            <p class="help">The transaction ID that must appear in both lines. It can sit anywhere in the line, including inside an array or JSON.</p>
+            <p class="msg msg-error" ng-if="vm.errorFor('matchText')">{{vm.errorFor('matchText')}}</p>
+        </div>
+
+        <div class="options">
+            <fieldset>
+                <legend>Match type</legend>
+                <label class="choice" ng-repeat="m in vm.matchModes">
+                    <input type="radio" name="matchMode" ng-model="vm.config.matchMode" ng-value="m.id"> {{m.label}}
+                </label>
+            </fieldset>
+            <fieldset>
+                <legend>Case</legend>
+                <label class="choice"><input type="radio" name="caseMode" ng-model="vm.config.caseSensitive" ng-value="true"> Case-sensitive</label>
+                <label class="choice"><input type="radio" name="caseMode" ng-model="vm.config.caseSensitive" ng-value="false"> Case-insensitive</label>
+            </fieldset>
+        </div>
+        <p class="help" ng-if="vm.config.matchMode === 'regex'">In regular-expression mode all three fields are patterns. For Match Text, the first string it matches on each line is the ID used for pairing.</p>
+        <p class="help" ng-if="vm.config.matchMode === 'exact'">Whole-token matching: the text must not be glued to other letters, digits or underscores.</p>
+    </section>
+
+    <!-- ============================================================ DATETIME + PAIRING -->
+    <section class="card" aria-labelledby="h-time">
+        <div class="card-head"><h2 id="h-time">Timestamps and pairing</h2></div>
+
+        <div class="options">
+            <fieldset>
+                <legend>Timestamp detection</legend>
+                <label class="choice"><input type="radio" name="dtMode" ng-model="vm.config.dt.mode" value="auto"> Automatic</label>
+                <label class="choice"><input type="radio" name="dtMode" ng-model="vm.config.dt.mode" value="regex"> Custom regex</label>
+                <label class="choice"><input type="radio" name="dtMode" ng-model="vm.config.dt.mode" value="format"> Manual format</label>
+            </fieldset>
+
+            <fieldset>
+                <legend>Pairing strategy</legend>
+                <label class="choice" ng-repeat="p in vm.pairingOptions" title="{{p.hint}}">
+                    <input type="radio" name="pairing" ng-model="vm.config.pairing" ng-value="p.id"> {{p.label}}
+                </label>
+                <label class="choice sub" ng-if="vm.config.pairing === 'sequential'">
+                    <input type="checkbox" ng-model="vm.config.allowEndReuse"> Allow one end entry to be reused
+                </label>
+            </fieldset>
+        </div>
+
+        <p class="help" ng-if="vm.config.dt.mode === 'auto'">
+            Detected automatically, anywhere in the line. Examples:
+            <code ng-repeat="f in vm.supportedFormats">{{f}}</code>
+        </p>
+
+        <div class="field" ng-if="vm.config.dt.mode === 'regex'" ng-class="{'has-error': vm.errorFor('datetime')}">
+            <label for="dtRegex">Datetime regular expression</label>
+            <input id="dtRegex" type="text" class="mono" ng-model="vm.config.dt.regex" spellcheck="false" autocomplete="off"
+                   placeholder="e.g. ^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)\|">
+            <div class="inline">
+                <label for="dtGroup">Capture group</label>
+                <input id="dtGroup" type="number" min="0" class="narrow" ng-model="vm.config.dt.group">
+                <span class="help">0 = whole match.</span>
+            </div>
+            <label for="dtFormatRx">Format for the captured text (optional)</label>
+            <input id="dtFormatRx" type="text" class="mono" ng-model="vm.config.dt.format" spellcheck="false" autocomplete="off"
+                   placeholder="Leave empty to detect the format automatically">
+        </div>
+
+        <div class="field" ng-if="vm.config.dt.mode === 'format'" ng-class="{'has-error': vm.errorFor('datetime')}">
+            <label for="dtFormat">Datetime format</label>
+            <input id="dtFormat" type="text" class="mono" ng-model="vm.config.dt.format" spellcheck="false" autocomplete="off"
+                   placeholder="yyyy-MM-dd HH:mm:ss.SSS">
+            <p class="help">Letters: yyyy yy MMM MM dd HH hh mm ss S (fraction) a (AM/PM) XXX or Z (timezone). Put literal text in single quotes.</p>
+        </div>
+        <p class="msg msg-error" ng-if="vm.errorFor('datetime')" role="alert">{{vm.errorFor('datetime')}}</p>
+
+        <div class="options">
+            <div class="field compact">
+                <label for="defaultTz">Default timezone</label>
+                <input id="defaultTz" type="text" list="tzList" ng-model="vm.config.dt.defaultTz" autocomplete="off">
+                <datalist id="tzList"><option ng-repeat="z in vm.timezones" value="{{z}}"></option></datalist>
+                <p class="help">Used only when a timestamp has no timezone. UTC, local, or an offset like +07:00.</p>
+            </div>
+            <div class="field compact">
+                <label for="occurrence">If a line has several timestamps</label>
+                <select id="occurrence" ng-model="vm.config.dt.occurrence">
+                    <option value="first">Use the first</option>
+                    <option value="last">Use the last</option>
+                </select>
+                <p class="help">A warning is always shown when this happens.</p>
+            </div>
+            <div class="field compact">
+                <label for="dateOrder">Dates like 02/11/2026</label>
+                <select id="dateOrder" ng-model="vm.config.dt.dateOrder">
+                    <option value="DMY">Day / month / year</option>
+                    <option value="MDY">Month / day / year</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="run-bar">
+            <button type="button" class="btn btn-primary" ng-click="vm.analyze()" ng-disabled="vm.running">
+                {{vm.running ? 'Analyzing...' : 'Analyze log'}}
+            </button>
+            <button type="button" class="btn" ng-if="vm.running" ng-click="vm.cancel()">Cancel</button>
+            <div class="progress" ng-if="vm.running" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{vm.progress.percent}}">
+                <div class="progress-fill" ng-style="{width: vm.progress.percent + '%'}"></div>
+            </div>
+            <span class="meta" ng-if="vm.running">{{vm.progress.processed | number}} of {{vm.progress.total | number}} lines</span>
+        </div>
+    </section>
+
+    <!-- ===================================================================== RESULTS -->
+    <section class="card results" ng-if="vm.result" aria-labelledby="h-results">
+        <div class="card-head">
+            <h2 id="h-results">Results</h2>
+            <span class="meta">{{vm.result.totals.lines | number}} lines scanned in {{vm.result.elapsedMs | number}} ms</span>
+        </div>
+
+        <ul class="notes" ng-if="vm.result.messages.length">
+            <li ng-repeat="m in vm.result.messages" ng-class="'note-' + m.level">{{m.text}}</li>
+        </ul>
+
+        <div class="cards">
+            <div class="stat" ng-repeat="c in vm.summaryCards" ng-class="c.tone">
+                <div class="stat-label">{{c.label}}</div>
+                <div class="stat-main">{{c.main}}</div>
+                <div class="stat-sub" ng-if="c.sub">{{c.sub}}</div>
+            </div>
+        </div>
+
+        <div class="dist" ng-if="vm.result.distribution.length > 1">
+            <h3>Duration distribution</h3>
+            <div class="dist-bars">
+                <div class="dist-col" ng-repeat="b in vm.result.distribution"
+                     title="{{b.count}} transaction(s): {{b.from | duration:'s'}} to {{b.to | duration:'s'}}">
+                    <span class="dist-count">{{b.count}}</span>
+                    <span class="dist-bar" ng-style="{height: vm.distHeight(b) + '%'}"></span>
+                </div>
+            </div>
+            <div class="dist-axis"><span>{{vm.result.stats.min | duration:'s'}}</span><span>{{vm.result.stats.max | duration:'s'}}</span></div>
+        </div>
+
+        <div class="toolbar" ng-if="vm.result.rows.length">
+            <input type="search" class="search" placeholder="Filter by ID, line, time or message" aria-label="Filter results"
+                   ng-model="vm.filter.text" ng-change="vm.refreshView()" ng-model-options="{ debounce: 200 }">
+            <select ng-model="vm.filter.status" ng-change="vm.refreshView()" aria-label="Filter by status">
+                <option value="">All statuses</option>
+                <option value="success">Success</option>
+                <option value="error">Error</option>
+            </select>
+            <button type="button" class="btn" ng-click="vm.sortSlowest()">Slowest first</button>
+            <span class="spacer"></span>
+            <button type="button" class="btn" ng-click="vm.copyAll()">Copy all</button>
+            <button type="button" class="btn" ng-click="vm.exportCsv()">Export CSV</button>
+            <button type="button" class="btn" ng-click="vm.exportJson()">Export JSON</button>
+        </div>
+
+        <div class="table-wrap" ng-if="vm.result.rows.length">
+            <table class="results-table">
+                <thead>
+                <tr>
+                    <th class="col-tools"><span class="visually-hidden">Details</span></th>
+                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('no')">No.</button></th>
+                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('key')">Match Text</button></th>
+                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('startLine')">Start Line</button></th>
+                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('endLine')">End Line</button></th>
+                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('startIso')">Start Datetime</button></th>
+                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('endIso')">End Datetime</button></th>
+                    <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('durationMs')">Duration (ms)</button></th>
+                    <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('durationSec')">Duration (seconds)</button></th>
+                    <th><button type="button" class="th-btn" ng-click="vm.sortBy('status')">Status</button></th>
+                    <th class="col-tools"><span class="visually-hidden">Copy</span></th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr ng-repeat-start="row in vm.pageRows track by row.no" ng-class="{open: vm.expanded[row.no], bad: row.status === 'error'}">
+                    <td class="col-tools">
+                        <button type="button" class="link-btn" ng-click="vm.toggleRow(row)" aria-expanded="{{!!vm.expanded[row.no]}}">
+                            {{vm.expanded[row.no] ? 'Hide' : 'Details'}}
+                        </button>
+                    </td>
+                    <td>{{row.no}}</td>
+                    <td class="mono clip" title="{{row.key}}">{{row.key}}</td>
+                    <td>{{row.startLine || '-'}}</td>
+                    <td>{{row.endLine || '-'}}</td>
+                    <td class="mono nowrap">{{row.startTs || '-'}}</td>
+                    <td class="mono nowrap">{{row.endTs || '-'}}</td>
+                    <td class="num mono">
+                        {{row.durationMs === null ? '-' : row.durationMs}}
+                        <span class="bar" ng-if="row.status === 'success'"><span class="bar-fill" ng-style="{width: vm.barWidth(row) + '%'}"></span></span>
+                    </td>
+                    <td class="num mono">{{row.durationSec === null ? '-' : row.durationSec}}</td>
+                    <td>
+                        <span class="pill" ng-class="row.status">{{row.status === 'success' ? 'Success' : 'Error'}}</span>
+                        <span class="pill warn" ng-if="row.warnings.length" title="{{row.warnings.length}} warning(s), open Details">{{row.warnings.length}}</span>
+                    </td>
+                    <td class="col-tools"><button type="button" class="link-btn" ng-click="vm.copyRow(row)">Copy</button></td>
+                </tr>
+                <tr ng-repeat-end ng-if="vm.expanded[row.no]" class="detail-row">
+                    <td colspan="11">
+                        <div class="detail">
+                            <div class="detail-col">
+                                <h4>Start line {{row.startLine}}</h4>
+                                <pre>{{row.startRaw || 'No start line'}}</pre>
+                                <h4>End line {{row.endLine}}</h4>
+                                <pre>{{row.endRaw || 'No end line'}}</pre>
+                            </div>
+                            <div class="detail-col">
+                                <h4>Extracted timestamps</h4>
+                                <dl class="kv" ng-if="row.startDetail">
+                                    <dt>Start text</dt><dd class="mono">{{row.startDetail.text}}</dd>
+                                    <dt>Start in UTC</dt><dd class="mono">{{row.startIso}}</dd>
+                                    <dt>Start format</dt><dd>{{row.startDetail.format}}, position {{row.startDetail.position}}, timezone {{row.startDetail.timezone}}</dd>
+                                </dl>
+                                <dl class="kv" ng-if="row.endDetail">
+                                    <dt>End text</dt><dd class="mono">{{row.endDetail.text}}</dd>
+                                    <dt>End in UTC</dt><dd class="mono">{{row.endIso}}</dd>
+                                    <dt>End format</dt><dd>{{row.endDetail.format}}, position {{row.endDetail.position}}, timezone {{row.endDetail.timezone}}</dd>
+                                </dl>
+                                <h4 ng-if="row.durationMs !== null">Duration</h4>
+                                <dl class="kv" ng-if="row.durationMs !== null">
+                                    <dt>Milliseconds</dt><dd class="mono">{{row.durationMs}}</dd>
+                                    <dt>Seconds</dt><dd class="mono">{{row.durationSec}}</dd>
+                                    <dt>Minutes, seconds</dt><dd>{{row.durationMs | duration:'ms-s'}}</dd>
+                                    <dt>Hours, minutes, seconds</dt><dd>{{row.durationMs | duration:'hms'}}</dd>
+                                    <dt>Days, hours, minutes, seconds</dt><dd>{{row.durationMs | duration:'dhms'}}</dd>
+                                    <dt>Readable</dt><dd>{{row.durationMs | duration}}</dd>
+                                </dl>
+                                <p class="msg msg-error" ng-if="row.error">{{row.error}}</p>
+                                <ul class="notes" ng-if="row.warnings.length">
+                                    <li class="note-warning" ng-repeat="w in row.warnings track by $index">{{w}}</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <p class="empty" ng-if="!vm.result.rows.length">No pairs were produced. See the notes above and the unmatched entries below.</p>
+        <p class="empty" ng-if="vm.result.rows.length && !vm.filteredCount">No rows match the current filter.</p>
+
+        <div class="pager" ng-if="vm.pageCount > 1">
+            <button type="button" class="btn" ng-disabled="vm.page <= 1" ng-click="vm.goToPage(vm.page - 1)">Previous</button>
+            <span>Page {{vm.page}} of {{vm.pageCount}} ({{vm.filteredCount | number}} rows)</span>
+            <button type="button" class="btn" ng-disabled="vm.page >= vm.pageCount" ng-click="vm.goToPage(vm.page + 1)">Next</button>
+        </div>
+
+        <details class="unmatched" ng-if="vm.result.unmatched.length">
+            <summary>Unmatched entries ({{vm.result.unmatched.length}})</summary>
+            <div class="table-wrap">
+                <table class="results-table">
+                    <thead><tr><th>Type</th><th>Line</th><th>Timestamp</th><th>Reason</th><th>Original line</th></tr></thead>
+                    <tbody>
+                    <tr ng-repeat="u in vm.result.unmatched | limitTo: 500">
+                        <td>{{u.type === 'start' ? 'Start' : 'End'}}</td>
+                        <td>{{u.lineNo}}</td>
+                        <td class="mono nowrap">{{u.timestamp}}</td>
+                        <td>{{u.reason}}</td>
+                        <td class="mono clip wide" title="{{u.raw}}">{{vm.preview(u.raw)}}</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="help" ng-if="vm.result.unmatched.length > 500">Showing the first 500. The JSON export contains all of them.</p>
+        </details>
+    </section>
+</main>
+
+<div class="toast" ng-if="vm.toast" ng-class="vm.toast.kind" role="status">{{vm.toast.text}}</div>
+
+<script src="app.js"></script>
+<script src="LogParserService.js"></script>
+<script src="DateTimeService.js"></script>
+<script src="MatchingService.js"></script>
+<script src="DurationService.js"></script>
+<script src="ExportService.js"></script>
+<script src="DurationFilter.js"></script>
+<script src="LogAnalyzerController.js"></script>
+</body>
+</html>
