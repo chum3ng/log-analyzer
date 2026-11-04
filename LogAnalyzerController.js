@@ -94,7 +94,7 @@
             var rows = vm.result.records.filter(function (r) { return r.status !== 'COMPLETE'; });
             save('unmatched-transactions.csv', Exporter.transactionsCsv(rows), 'text/csv;charset=utf-8', rows.length + ' unmatched transaction(s) downloaded');
         };
-        vm.exportAnalysis = function () { save('batch-callback-analysis.csv', Exporter.analysisCsv(vm.result.batches, vm.result.callbacks), 'text/csv;charset=utf-8', 'Analysis downloaded'); };
+        vm.exportAnalysis = function () { save('send-receive-analysis.csv', Exporter.analysisCsv(vm.result.batches, vm.result.callbacks), 'text/csv;charset=utf-8', 'Analysis downloaded'); };
         vm.exportLogLines = function () {
             var rows = filteredOrAll();
             save('transaction-log-lines.txt', Exporter.logLinesText(rows), 'text/plain;charset=utf-8', 'Log lines for ' + rows.length + ' transaction(s) downloaded');
@@ -175,9 +175,9 @@
             vm.summaryCards = [
                 { label: 'Uploaded files', main: t.files },
                 { label: 'Log lines processed', main: t.lines },
-                { label: 'Batch events', main: t.batchEvents },
+                { label: 'Send events', main: t.batchEvents },
                 { label: 'Signing events', main: t.signingEvents },
-                { label: 'Callback events', main: t.callbackEvents },
+                { label: 'Receive events', main: t.callbackEvents },
                 { label: 'Unique transaction hashes', main: t.uniqueHashes },
                 { label: 'Fully matched', main: t.fullyMatched, tone: t.fullyMatched ? 'ok' : '' },
                 { label: 'With missing events', main: t.withMissing, tone: t.withMissing ? 'warn' : '' },
@@ -296,9 +296,9 @@
                 missing: chosen.filter(function (x) { return !x.ev; }).map(function (x) { return LABELS[x.type]; }),
                 others: others,
                 durations: [
-                    { label: 'Signing to Batch', ms: rec.signingToBatch },
-                    { label: 'Batch to Callback', ms: rec.batchToCallback },
-                    { label: 'Signing to Callback', ms: rec.signingToCallback }
+                    { label: 'Signing to Send', ms: rec.signingToBatch },
+                    { label: 'Send to Receive', ms: rec.batchToCallback },
+                    { label: 'Signing to Receive', ms: rec.signingToCallback }
                 ]
             };
         }

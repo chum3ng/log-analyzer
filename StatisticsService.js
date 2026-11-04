@@ -9,9 +9,9 @@
         var self = this;
 
         var METRICS = [
-            { id: 'signingToBatch', label: 'Signing to Batch' },
-            { id: 'batchToCallback', label: 'Batch to Callback' },
-            { id: 'signingToCallback', label: 'Signing to Callback' }
+            { id: 'signingToBatch', label: 'Signing to Send' },
+            { id: 'batchToCallback', label: 'Send to Receive' },
+            { id: 'signingToCallback', label: 'Signing to Receive' }
         ];
 
         self.METRICS = METRICS;

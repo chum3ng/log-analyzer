@@ -33,7 +33,7 @@
         // the differences between events are unaffected.
         var timeParser = DateTimeService.createExtractor({ mode: 'auto', defaultTz: 'UTC', occurrence: 'first' });
 
-        self.LABELS = { SIGNING: 'Successfully signed wallet-transfer', BATCH: 'Send transfer batch to core', CALLBACK: 'Received business transaction list' };
+        self.LABELS = { SIGNING: 'Signing', BATCH: 'Send', CALLBACK: 'Receive' };   // display names; the log text each one matches is listed above
         self.ORDER = { SIGNING: 0, BATCH: 1, CALLBACK: 2 };
         self.detectType = detectType;
         self.extract = extract;

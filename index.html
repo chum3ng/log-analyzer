@@ -12,7 +12,7 @@
 <header class="app-header">
     <div class="wrap">
         <h1>Automatic Transaction Log Analyzer</h1>
-        <p>Upload your log files. Each transaction is followed from signing, to batch, to callback by its hash, and the time between the steps is measured. Files are read in this browser tab and never uploaded.</p>
+        <p>Upload your log files. Each transaction is followed from signing, to send, to receive by its hash, and the time between the steps is measured. Files are read in this browser tab and never uploaded.</p>
     </div>
 </header>
 
@@ -90,7 +90,7 @@
 
         <div class="tabs" role="tablist">
             <button type="button" role="tab" class="tab" ng-class="{active: vm.tab === 'transactions'}" ng-click="vm.tab = 'transactions'">Transactions</button>
-            <button type="button" role="tab" class="tab" ng-class="{active: vm.tab === 'batches'}" ng-click="vm.tab = 'batches'">Batches and callbacks</button>
+            <button type="button" role="tab" class="tab" ng-class="{active: vm.tab === 'batches'}" ng-click="vm.tab = 'batches'">Send and receive</button>
             <button type="button" role="tab" class="tab" ng-class="{active: vm.tab === 'stats'}" ng-click="vm.tab = 'stats'">Statistics</button>
         </div>
 
@@ -126,11 +126,11 @@
                         <th><button type="button" class="th-btn" ng-click="vm.sortBy('asset')">Asset</button></th>
                         <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('amountNum')">Amount</button></th>
                         <th><button type="button" class="th-btn" ng-click="vm.sortBy('signingTs')">Signing Time</button></th>
-                        <th><button type="button" class="th-btn" ng-click="vm.sortBy('batchTs')">Batch Time</button></th>
-                        <th><button type="button" class="th-btn" ng-click="vm.sortBy('callbackTs')">Callback Time</button></th>
-                        <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('signingToBatch')">Signing → Batch</button></th>
-                        <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('batchToCallback')">Batch → Callback</button></th>
-                        <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('signingToCallback')">Signing → Callback</button></th>
+                        <th><button type="button" class="th-btn" ng-click="vm.sortBy('batchTs')">Send Time</button></th>
+                        <th><button type="button" class="th-btn" ng-click="vm.sortBy('callbackTs')">Receive Time</button></th>
+                        <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('signingToBatch')">Signing → Send</button></th>
+                        <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('batchToCallback')">Send → Receive</button></th>
+                        <th class="num"><button type="button" class="th-btn" ng-click="vm.sortBy('signingToCallback')">Signing → Receive</button></th>
                         <th><button type="button" class="th-btn" ng-click="vm.sortBy('status')">Status</button></th>
                         <th>Details</th>
                     </tr>
@@ -166,20 +166,20 @@
             </div>
         </div>
 
-        <!-- ------------------------------------------------ BATCHES / CALLBACKS -->
+        <!-- ------------------------------------------------ SEND / RECEIVE -->
         <div ng-if="vm.tab === 'batches'">
             <div class="card">
                 <div class="card-head">
-                    <h3>Batch events ({{vm.batchView.total | number}})</h3>
+                    <h3>Send events ({{vm.batchView.total | number}})</h3>
                     <div class="actions">
-                        <label class="choice"><input type="checkbox" ng-model="vm.batchView.onlyIssues" ng-change="vm.batchView.page = 1; vm.refreshAnalysis()"> Only batches needing review</label>
+                        <label class="choice"><input type="checkbox" ng-model="vm.batchView.onlyIssues" ng-change="vm.batchView.page = 1; vm.refreshAnalysis()"> Only send events needing review</label>
                         <button type="button" class="btn" ng-click="vm.exportAnalysis()">Export analysis</button>
                     </div>
                 </div>
-                <p class="help">Shows whether every transaction in a batch was signed and later came back in a callback.</p>
+                <p class="help">Shows whether every transaction in a send event was signed and later appeared in a receive event.</p>
                 <div class="table-wrap" ng-if="vm.batchView.rows.length">
                     <table class="results-table">
-                        <thead><tr><th></th><th>Batch time</th><th>Source</th><th class="num">Declared size</th><th class="num">Hashes extracted</th><th class="num">With signing event</th><th class="num">Found in callback</th><th class="num">Missing from callback</th></tr></thead>
+                        <thead><tr><th></th><th>Send time</th><th>Source</th><th class="num">Declared size</th><th class="num">Hashes extracted</th><th class="num">With signing event</th><th class="num">Found in receive</th><th class="num">Missing from receive</th></tr></thead>
                         <tbody>
                         <tr ng-repeat-start="b in vm.batchView.rows track by b.eventId" ng-class="{open: vm.openEvents[b.eventId], bad: b.missingFromCallback.length}">
                             <td class="col-tools"><button type="button" class="link-btn" ng-click="vm.toggleEvent(b.eventId)">{{vm.openEvents[b.eventId] ? 'Hide' : 'Details'}}</button></td>
@@ -193,9 +193,9 @@
                         </tr>
                         <tr ng-repeat-end ng-if="vm.openEvents[b.eventId]" class="detail-row">
                             <td colspan="8">
-                                <ul class="notes" ng-if="b.warnings.length || b.duplicatesInside"><li class="note-warning" ng-repeat="w in b.warnings track by $index">{{w}}</li><li class="note-warning" ng-if="b.duplicatesInside">{{b.duplicatesInside}} hash(es) are repeated inside this batch.</li></ul>
-                                <h4>Missing from any callback ({{b.missingFromCallback.length}})</h4>
-                                <pre class="hash-list">{{b.missingFromCallback.length ? b.missingFromCallback.join('\n') : 'None. Every hash in this batch came back in a callback.'}}</pre>
+                                <ul class="notes" ng-if="b.warnings.length || b.duplicatesInside"><li class="note-warning" ng-repeat="w in b.warnings track by $index">{{w}}</li><li class="note-warning" ng-if="b.duplicatesInside">{{b.duplicatesInside}} hash(es) are repeated inside this send event.</li></ul>
+                                <h4>Missing from any receive event ({{b.missingFromCallback.length}})</h4>
+                                <pre class="hash-list">{{b.missingFromCallback.length ? b.missingFromCallback.join('\n') : 'None. Every hash in this send event appeared in a receive event.'}}</pre>
                                 <h4>Without a signing event ({{b.withoutSigning.length}})</h4>
                                 <pre class="hash-list">{{b.withoutSigning.length ? b.withoutSigning.join('\n') : 'None.'}}</pre>
                                 <button type="button" class="btn" ng-click="vm.copyText(b.event.raw, 'Log line copied')">Copy log line</button>
@@ -204,7 +204,7 @@
                         </tbody>
                     </table>
                 </div>
-                <p class="empty" ng-if="!vm.batchView.rows.length">No batch events to show.</p>
+                <p class="empty" ng-if="!vm.batchView.rows.length">No send events to show.</p>
                 <div class="pager" ng-if="vm.batchView.pageCount > 1">
                     <button type="button" class="btn" ng-disabled="vm.batchView.page <= 1" ng-click="vm.goToBatchPage(vm.batchView.page - 1)">Previous</button>
                     <span>Page {{vm.batchView.page}} of {{vm.batchView.pageCount}}</span>
@@ -214,13 +214,13 @@
 
             <div class="card">
                 <div class="card-head">
-                    <h3>Callback events ({{vm.callbackView.total | number}})</h3>
-                    <label class="choice"><input type="checkbox" ng-model="vm.callbackView.onlyIssues" ng-change="vm.callbackView.page = 1; vm.refreshAnalysis()"> Only callbacks needing review</label>
+                    <h3>Receive events ({{vm.callbackView.total | number}})</h3>
+                    <label class="choice"><input type="checkbox" ng-model="vm.callbackView.onlyIssues" ng-change="vm.callbackView.page = 1; vm.refreshAnalysis()"> Only receive events needing review</label>
                 </div>
-                <p class="help">Shows whether every transaction in a callback was part of a batch.</p>
+                <p class="help">Shows whether every transaction in a receive event was part of a send event.</p>
                 <div class="table-wrap" ng-if="vm.callbackView.rows.length">
                     <table class="results-table">
-                        <thead><tr><th></th><th>Callback time</th><th>Source</th><th class="num">Declared size</th><th class="num">Hashes extracted</th><th class="num">Matched to batch</th><th class="num">Not found in batch</th></tr></thead>
+                        <thead><tr><th></th><th>Receive time</th><th>Source</th><th class="num">Declared size</th><th class="num">Hashes extracted</th><th class="num">Matched to send</th><th class="num">Not found in send</th></tr></thead>
                         <tbody>
                         <tr ng-repeat-start="c in vm.callbackView.rows track by c.eventId" ng-class="{open: vm.openEvents[c.eventId], bad: c.notInBatch.length}">
                             <td class="col-tools"><button type="button" class="link-btn" ng-click="vm.toggleEvent(c.eventId)">{{vm.openEvents[c.eventId] ? 'Hide' : 'Details'}}</button></td>
@@ -233,16 +233,16 @@
                         </tr>
                         <tr ng-repeat-end ng-if="vm.openEvents[c.eventId]" class="detail-row">
                             <td colspan="7">
-                                <ul class="notes" ng-if="c.warnings.length || c.duplicatesInside"><li class="note-warning" ng-repeat="w in c.warnings track by $index">{{w}}</li><li class="note-warning" ng-if="c.duplicatesInside">{{c.duplicatesInside}} hash(es) are repeated inside this callback.</li></ul>
-                                <h4>Not found in any batch ({{c.notInBatch.length}})</h4>
-                                <pre class="hash-list">{{c.notInBatch.length ? c.notInBatch.join('\n') : 'None. Every hash in this callback was part of a batch.'}}</pre>
+                                <ul class="notes" ng-if="c.warnings.length || c.duplicatesInside"><li class="note-warning" ng-repeat="w in c.warnings track by $index">{{w}}</li><li class="note-warning" ng-if="c.duplicatesInside">{{c.duplicatesInside}} hash(es) are repeated inside this receive event.</li></ul>
+                                <h4>Not found in any send event ({{c.notInBatch.length}})</h4>
+                                <pre class="hash-list">{{c.notInBatch.length ? c.notInBatch.join('\n') : 'None. Every hash in this receive event was part of a send event.'}}</pre>
                                 <button type="button" class="btn" ng-click="vm.copyText(c.event.raw, 'Log line copied')">Copy log line</button>
                             </td>
                         </tr>
                         </tbody>
                     </table>
                 </div>
-                <p class="empty" ng-if="!vm.callbackView.rows.length">No callback events to show.</p>
+                <p class="empty" ng-if="!vm.callbackView.rows.length">No receive events to show.</p>
                 <div class="pager" ng-if="vm.callbackView.pageCount > 1">
                     <button type="button" class="btn" ng-disabled="vm.callbackView.page <= 1" ng-click="vm.goToCallbackPage(vm.callbackView.page - 1)">Previous</button>
                     <span>Page {{vm.callbackView.page}} of {{vm.callbackView.pageCount}}</span>

@@ -228,7 +228,7 @@ label.btn:focus-within { outline: 3px solid #4aa3c0; outline-offset: 2px; }
 
 /* status pills */
 .pill.st-complete { background: var(--ok-tint); color: var(--ok); }
-.pill.st-missing-signing, .pill.st-missing-batch, .pill.st-missing-callback { background: var(--warn-tint); color: var(--warn); }
+.pill.st-missing-signing, .pill.st-missing-send, .pill.st-missing-receive { background: var(--warn-tint); color: var(--warn); }
 .pill.st-partial { background: #e6ebee; color: #3d4d57; }
 .pill.st-duplicate { background: #ebe0f5; color: #6a3a94; }
 .pill.st-ambiguous { background: var(--bad-tint); color: var(--bad); }
@@ -251,7 +251,7 @@ label.btn:focus-within { outline: 3px solid #4aa3c0; outline-offset: 2px; }
 .hbar-track { height: 14px; background: var(--soft); border-radius: 3px; overflow: hidden; }
 .hbar-fill { display: block; height: 100%; background: var(--primary); }
 .hbar-fill.st-complete { background: var(--ok); }
-.hbar-fill.st-missing-signing, .hbar-fill.st-missing-batch, .hbar-fill.st-missing-callback { background: #d49a1f; }
+.hbar-fill.st-missing-signing, .hbar-fill.st-missing-send, .hbar-fill.st-missing-receive { background: #d49a1f; }
 .hbar-fill.st-partial { background: #7d8e98; }
 .hbar-fill.st-duplicate { background: #8a56b8; }
 .hbar-fill.st-ambiguous { background: var(--bad); }

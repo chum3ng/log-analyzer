@@ -14,22 +14,22 @@
      *
      * Status per unique hash (first matching rule wins):
      *   DUPLICATE        the hash was signed more than once
-     *   AMBIGUOUS        one signing but several batch or callback occurrences
+     *   AMBIGUOUS        one signing but several send or receive occurrences
      *   COMPLETE         exactly one of each of the three events
-     *   PARTIAL          only one of the three events exists
-     *   MISSING_SIGNING / MISSING_BATCH / MISSING_CALLBACK   two events exist, this one does not
+     *   PARTIAL          only one of the three events (signing, send, receive) exists
+     *   MISSING_SIGNING / MISSING_SEND / MISSING_RECEIVE   two events exist, this one does not
      * `missing` always lists every absent event, whatever the status.
      *
      * Deterministic pairing when a hash has several occurrences (all are preserved
      * in `all`, nothing is overwritten):
      *   signing  = earliest signing
-     *   batch    = earliest batch at or after the signing; if none, the closest one before it
-     *   callback = earliest callback at or after the batch (else the signing); if none, the closest before
+     *   send     = earliest send at or after the signing; if none, the closest one before it
+     *   receive  = earliest receive at or after the send (else the signing); if none, the closest before
      * "Closest before" produces a negative duration, which is flagged, never hidden.
      */
     function TransactionCorrelationService(DurationService) {
         var self = this;
-        var STATUSES = ['COMPLETE', 'MISSING_SIGNING', 'MISSING_BATCH', 'MISSING_CALLBACK', 'PARTIAL', 'DUPLICATE', 'AMBIGUOUS'];
+        var STATUSES = ['COMPLETE', 'MISSING_SIGNING', 'MISSING_SEND', 'MISSING_RECEIVE', 'PARTIAL', 'DUPLICATE', 'AMBIGUOUS'];
 
         self.STATUSES = STATUSES;
         self.createRun = createRun;
@@ -102,7 +102,7 @@
                 if (skipped) { messages.push({ level: 'info', text: skipped + ' duplicate log line(s) skipped because an identical line was already processed (same file added twice or overlapping files).' }); }
                 if (unusable) { messages.push({ level: 'warning', text: unusable + ' event(s) had no usable transaction hash and could not be correlated.' }); }
                 if (badTs) { messages.push({ level: 'warning', text: badTs + ' event(s) have no readable timestamp; their durations are shown as unavailable.' }); }
-                if (sizeMismatch) { messages.push({ level: 'warning', text: sizeMismatch + ' batch/callback line(s) declare a size that differs from the number of hashes extracted.' }); }
+                if (sizeMismatch) { messages.push({ level: 'warning', text: sizeMismatch + ' send/receive line(s) declare a size that differs from the number of hashes extracted.' }); }
                 if (t.negative) { messages.push({ level: 'error', text: t.negative + ' transaction(s) have a negative duration (events out of expected order). Review them; timestamps were not altered.' }); }
                 if (t.duplicateOrAmbiguous) { messages.push({ level: 'warning', text: t.duplicateOrAmbiguous + ' transaction(s) have repeated occurrences and need review (status DUPLICATE or AMBIGUOUS).' }); }
                 if (problemCount) { messages.push({ level: 'error', text: problemCount + ' line(s) could not be parsed. First: ' + problems[0] }); }
@@ -130,15 +130,15 @@
 
                 var missing = [];
                 if (!S) { missing.push('SIGNING'); }
-                if (!B) { missing.push('BATCH'); }
-                if (!C) { missing.push('CALLBACK'); }
+                if (!B) { missing.push('SEND'); }
+                if (!C) { missing.push('RECEIVE'); }
 
                 var flags = [];
                 if (d.negative) { flags.push('NEGATIVE_DURATION'); }
                 if (d.invalid) { flags.push('INVALID_TIMESTAMP'); }
                 if (rec.signings.length > 1) { flags.push('MULTIPLE_SIGNINGS'); }
-                if (rec.batches.length > 1) { flags.push('MULTIPLE_BATCHES'); }
-                if (rec.callbacks.length > 1) { flags.push('MULTIPLE_CALLBACKS'); }
+                if (rec.batches.length > 1) { flags.push('MULTIPLE_SENDS'); }
+                if (rec.callbacks.length > 1) { flags.push('MULTIPLE_RECEIVES'); }
                 if (rec.signings.length > 1 && conflicting(rec.signings)) { flags.push('CONFLICTING_DETAILS'); }
 
                 var status;

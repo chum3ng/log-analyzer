@@ -24,8 +24,8 @@
         self.timestampForFile = timestampForFile;
 
         var TX_HEADER = ['Transaction Hash', 'Source Account', 'Destination Account', 'Asset', 'Amount', 'Description',
-            'Signing Time', 'Batch Time', 'Callback Time', 'Signing to Batch (s)', 'Batch to Callback (s)', 'Signing to Callback (s)',
-            'Status', 'Flags', 'Missing Events', 'Signing Line', 'Batch Line', 'Callback Line'];
+            'Signing Time', 'Send Time', 'Receive Time', 'Signing to Send (s)', 'Send to Receive (s)', 'Signing to Receive (s)',
+            'Status', 'Flags', 'Missing Events', 'Signing Line', 'Send Line', 'Receive Line'];
 
         function cell(v) {
             if (v === null || v === undefined) { return ''; }
@@ -56,10 +56,10 @@
                 parts.push((i ? ',\n' : '') + JSON.stringify({
                     hash: r.hash, source: r.src, destination: r.dst, asset: r.asset, amount: r.amount, description: r.desc,
                     status: r.status, flags: r.flags, missingEvents: r.missing, occurrences: r.counts,
-                    durationsMs: { signingToBatch: r.signingToBatch, batchToCallback: r.batchToCallback, signingToCallback: r.signingToCallback },
+                    durationsMs: { signingToSend: r.signingToBatch, sendToReceive: r.batchToCallback, signingToReceive: r.signingToCallback },
                     events: {
-                        signing: eventJson(r.signing), batch: eventJson(r.batch), callback: eventJson(r.callback),
-                        allSignings: r.all.signings.map(eventJson), allBatches: r.all.batches.map(eventJson), allCallbacks: r.all.callbacks.map(eventJson)
+                        signing: eventJson(r.signing), send: eventJson(r.batch), receive: eventJson(r.callback),
+                        allSignings: r.all.signings.map(eventJson), allSends: r.all.batches.map(eventJson), allReceives: r.all.callbacks.map(eventJson)
                     }
                 }));
             });
@@ -76,7 +76,7 @@
             var parts = [];
             records.forEach(function (r) {
                 parts.push('==== ' + r.hash + '  [' + r.status + (r.flags.length ? ' | ' + r.flags.join(' ') : '') + '] ====\n');
-                [['SIGNING', r.all.signings], ['BATCH', r.all.batches], ['CALLBACK', r.all.callbacks]].forEach(function (g) {
+                [['SIGNING', r.all.signings], ['SEND', r.all.batches], ['RECEIVE', r.all.callbacks]].forEach(function (g) {
                     g[1].forEach(function (ev) { parts.push(g[0] + '  ' + where(ev) + '\n' + ev.raw + '\n'); });
                 });
                 if (r.missing.length) { parts.push('MISSING  ' + r.missing.join(', ') + '\n'); }
@@ -88,13 +88,13 @@
         /** Batch and callback analysis, one event per row, with the hashes that need attention. */
         function analysisCsv(batches, callbacks) {
             var parts = ['\uFEFF' + csvLine(['Event', 'File', 'Line', 'Timestamp', 'Declared Size', 'Hashes Extracted', 'Unique Hashes',
-                'Matched With Signing', 'Found In Callback', 'Missing From Callback', 'Matched To Batch', 'Not In Batch', 'Hashes To Review'])];
+                'Matched With Signing', 'Found In Receive', 'Missing From Receive', 'Matched To Send', 'Not In Send', 'Hashes To Review'])];
             batches.forEach(function (b) {
-                parts.push(csvLine(['Batch', b.fileName, b.lineNo, b.tsText, b.declaredSize, b.extracted, b.unique,
+                parts.push(csvLine(['Send', b.fileName, b.lineNo, b.tsText, b.declaredSize, b.extracted, b.unique,
                     b.matchedSigning, b.inCallback, b.missingFromCallback.length, '', '', b.missingFromCallback.join(' ')]));
             });
             callbacks.forEach(function (c) {
-                parts.push(csvLine(['Callback', c.fileName, c.lineNo, c.tsText, c.declaredSize, c.extracted, c.unique,
+                parts.push(csvLine(['Receive', c.fileName, c.lineNo, c.tsText, c.declaredSize, c.extracted, c.unique,
                     '', '', '', c.matchedToBatch, c.notInBatch.length, c.notInBatch.join(' ')]));
             });
             return parts;
@@ -104,9 +104,9 @@
             return [
                 'Transaction: ' + r.hash, 'Status: ' + r.status,
                 'Source: ' + r.src, 'Destination: ' + r.dst, 'Asset: ' + r.asset, 'Amount: ' + r.amount,
-                'Signing: ' + r.signingTime, 'Batch: ' + r.batchTime, 'Callback: ' + r.callbackTime,
-                'Signing to Batch (s): ' + sec(r.signingToBatch), 'Batch to Callback (s): ' + sec(r.batchToCallback),
-                'Signing to Callback (s): ' + sec(r.signingToCallback)
+                'Signing: ' + r.signingTime, 'Send: ' + r.batchTime, 'Receive: ' + r.callbackTime,
+                'Signing to Send (s): ' + sec(r.signingToBatch), 'Send to Receive (s): ' + sec(r.batchToCallback),
+                'Signing to Receive (s): ' + sec(r.signingToCallback)
             ].join('\n');
         }
 
